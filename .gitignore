@@ -1,0 +1,9 @@
+*.o
+*.bin
+build/listing.txt
+.DS_Store
+hardware/_autosave*
+hardware/#auto_saved_files#
+_autosave*
+*-bak
+*-backups

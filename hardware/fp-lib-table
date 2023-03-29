@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "Footprints")(type "KiCad")(uri "${KIPRJMOD}/Footprints.pretty")(options "")(descr ""))
+  (lib (name "65uino")(type "KiCad")(uri "${KIPRJMOD}/65uino.pretty")(options "")(descr ""))
+)
