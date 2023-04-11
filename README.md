@@ -5,6 +5,7 @@ It's a 6502 based learning platform in a familiar form factor and a contestant i
 ![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg)
 
 In this repository you will find KiCAD hardware files, gerbers and 6502 ASM source files for the 65uino.
+The 65uino is based on the Single Breadboard Computer - https://youtu.be/s3t2QMukBRs
 
 You'll find more details at https://hackaday.io/project/190260-65uino
 
