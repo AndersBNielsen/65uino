@@ -1,6 +1,6 @@
 # Welcome to the 65uino project
 
-It's a 6502 based learning platform in a familiar form factor and a contestant in the 2023 Hackaday Prize.
+It's a green 6502 based learning platform in a familiar form factor and a contestant in the 2023 Hackaday Prize. By taking IC's out of the waste stream and into useful products we encourage recycling and reuse.
 
 ![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg)
 
