@@ -13,5 +13,6 @@ Prerequisites:
 
 Install cc65 (and minipro if using a tl866II+ to program a ROM) using your favorite package manager
 Run assemble.sh to assemble the source file
+(If you use Windows you probably want to use WSL for this^)
 
 The hardware schematic was created using KiCAD 6
