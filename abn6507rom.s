@@ -1,5 +1,3 @@
-; The code below writes text to a 128x64 SSD1306 i2c OLED
-; and reads out raw temperature from a BMP180 i2c module
 ; Written by Anders Nielsen, 2023
 ; License: https://creativecommons.org/licenses/by-nc/4.0/legalcode
 
@@ -10,19 +8,22 @@
 I2CRAM = $00
 
 I2CADDR = I2CRAM
-inb    = I2CRAM +1
-outb   = I2CRAM +2
-I2CREG = I2CRAM +3
-xtmp   = I2CRAM+4
-ytmp   = I2CRAM+5
-stringp = I2CRAM+6 ; & +1
+inb     = I2CRAM +1
+outb    = I2CRAM +2
+xtmp    = I2CRAM +3
+stringp = I2CRAM +4 ; (and +5)
 
+timer2  = stringp + 2
+rxcnt   = stringp + 3
+txcnt   = rxcnt +1
+runpnt  = txcnt +1
+mode    = runpnt +2
+serialbuf = runpnt +3 ; Address #12 / 0x0c
 
-;I2CADDR = $78 ; 0x3c << 1
-SDA   = 2; DRB0 bitmask
+SCL     = 1 ; DRB0 bitmask
+SCL_INV = $FE ; Inverted for easy clear bit
+SDA     = 2 ; DRB1 bitmask
 SDA_INV = $FD
-SCL   = 1; DRB1 bitmask
-SCL_INV = $FE
 
 RIOT = $80
 
@@ -50,8 +51,18 @@ WTD64EI = RIOT + $1E ;Write timer (divide by 64, enable interrupt)
 WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 
 .segment "USERLAND"
-.org $0008
-jmp main
+userland:
+lda #<userstring
+sta stringp
+lda #>userstring
+sta stringp+1
+jsr ssd1306_wstring
+
+halt:
+jmp halt
+
+userstring:
+.asciiz "Now we can test whatever code we want with our new serial bootloader! #65uino"
 
 .segment "RODATA"
 .org $F000 ; Not strictly needed with CA65 but shows correct address in listing.txt
@@ -70,162 +81,180 @@ jmp main
           bne clearzp
           sta $00,x
 
-          lda #$BC ; Bit 0, 1 are SCL, SDA, bit 6 is input button
+          lda #$BC ; Bit 0, 1 are SCL and SDA, bit 6 is input button.
           sta DDRB ; Set whole B register to output
           ; Reset state of DDRA is $00.
 
           lda #$ff ; Rest of port is input
-          sta DRA ; And it's supposed to start high
+          sta DRA
           lda #$02 ; Bit 1 is serial TX (Output)
           sta DDRA
 
-lda #'O'
-jsr serial_tx
-lda #'K'
-jsr serial_tx
-lda #$0D
-jsr serial_tx
-lda #$0A
-jsr serial_tx
-
-
-
-          ldy #$7f
-  i2cscan:
-          tya
-          sta I2CADDR
-          jsr i2c_start
-          jsr i2c_stop
-          dey
-          bne i2cscan
-
-jsr i2c_test
-ldy #$2e ; BMP180 cmd to read uncompensated temperature
-lda #$f4 ; Register
-jsr i2c_write
-
-;On cold start we need to wait a bit here to let OLED voltages stabilize
-
-jsr delay_qs
-
-lda #$3C ; 78 on back of module is 3C << 1.
+jsr qsdelay
+lda #$3C ; 78 on the back of the module is 3C << 1
 sta I2CADDR
 jsr ssd1306_init
+jsr qsdelay
 jsr ssd1306_clear
-lda #0
-jsr ssd1306_setpage
 
+bit DRB
+bvs welcomemsg
+lda #1
+sta mode
+lda #<ready
+sta stringp
+lda #>ready
+sta stringp+1
+jsr ssd1306_wstring
+clc
+bcc main
+
+welcomemsg:
 lda #<welcome
 sta stringp
 lda #>welcome
 sta stringp+1
 jsr ssd1306_wstring
 
-lda #7
-jsr ssd1306_setpage
-jsr bmp180_printtemp
-
-lda #0
-jsr ssd1306_setpage
-
 main:
-lda DRA ; Check for serial RX
-and #$01 ;
-bne noserial ; Break
-jsr serial_rx
-jsr ssd1306_wchar
-noserial:
-;jsr i2c_test
-;ldy #$2e ; BMP180 cmd to read uncompensated temperature
-;lda #$f4 ; Register
-;jsr i2c_write
-
 bit DRB
 bpl ledoff ; LED on, turn it off
 lda DRB    ; LED off, turn it on
-and #$7f ; Bit low = ON
+and #$7f   ; Bit low == ON
 sta DRB
-jmp l57
+jmp l71
 ledoff:
 lda DRB
-ora #$80
+ora #$80 ; High == off
 sta DRB
-l57:
+l71:
 lda #244
-bit DRB ; Button is in the V flag. Button pressed = 0, unpressed = 1.
+bit DRB
 bvs quartersecond
-jsr ssd1306_clear
-lda #244
 sta WTD64DI ; 244*64 = 15616 ~= 16ms
+jsr ssd1306_clear ; We only end up here if button is pressed
+lda #'O'
+jsr serial_tx
+lda #'K'
+jsr serial_tx
 bne wait ; BRA
 quartersecond:
 sta WTD1KDI ; 244 * 1024 = 249856 ~= quarter second
+bne wait ; BRA
 
+gonoserial:
+jmp noserial
 wait:
-lda DRA ; Check for serial RX
-and #$01 ;
-beq main ; Receiving - Break wait
-lda READTDI
-bne wait ; Loop until timer runs out
+lda DRA ; Check serial 3c
+and #$01 ; 2c
+bne gonoserial ; 2c
+tay ; A already 0
+sta txcnt
+sta timer2
 
+rx:
+dec timer2
+beq rxtimeout ; Branch if timeout
+lda DRA ; Check serial 3c
+and #$01 ; 2c
+bne rx ; Wait for RX until timeout
+sta timer2 ; Reset timer
+jsr serial_rx ; 6c
+sta serialbuf, y
+cpy #128-21 ; Leaves 9 bytes for stack
+beq rx_err
+iny
+bne rx ; BRA (Y never 0)
+rx_err:
+sty rxcnt
+lda #<overflow
+sta stringp
+lda #>overflow
+sta stringp+1
+jsr ssd1306_wstring
+clc
+bcc tx ; BRA
+rxtimeout:
+lda mode
+beq txt
+cmp #1
+bne txt
+;Time to parse data instead of txt - aka, our bootloader!
+sty rxcnt
+lda #<loaded
+sta stringp
+lda #>loaded
+sta stringp+1
+jsr ssd1306_wstring
+
+lda rxcnt
+jsr printbyte
+
+lda #<bytes
+sta stringp
+lda #>bytes
+sta stringp+1
+jsr ssd1306_wstring
+
+waittorun:
+bit DRB
+bvs waittorun
+jsr ssd1306_clear
+
+lda #$0c
+sta runpnt
+lda #0
+sta runpnt+1
+
+jmp (runpnt)
+
+txt:
+sty rxcnt
+tx:
+ldy txcnt
+cpy rxcnt
+beq gowait
+lda serialbuf, y
+jsr ssd1306_sendchar
+jsr i2c_stop
+inc txcnt
+jmp tx
+noserial:
+lda READTDI
+bne gowait ; Loop until timer runs out
 jmp main ; loop
+gowait:
+jmp wait
+
+ready:
+.asciiz "Ready to load code... "
+
+loading:
+.asciiz "Loading... "
+
+overflow:
+.asciiz "Buffer overflow!"
+
+loaded:
+.asciiz "Loaded "
+
+bytes:
+.asciiz " bytes of data. Press user button to clear screen and run code."
 
 welcome:
 .byte "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
 .byte $00
 
-delay_qs:
-lda #244
-sta WTD1KDI ; 244 * 1024 = 249856 ~= quarter second
-coldwait:
-lda READTDI
-bne coldwait ; Loop until timer runs out
-rts
+;Routines
 
-delay_short:
-sta WTD8DI ; Divide by 8 = A contains ticks to delay/8
-shortwait:
-lda READTDI
-bne shortwait
-rts
-
-bmp180_printtemp:
-lda #$77
-sta I2CADDR
-lda #$F7 ; LSB
-jsr i2c_read
-jsr bytetoa
-pha ; LSN
-tya
-pha ; MSN
-
-lda #$F6 ; MSB
-jsr i2c_read
-jsr bytetoa
-pha ; LSN
-tya
-pha ; MSN
-
-lda #$3C ; 78 on back of module is 3C << 1.
-sta I2CADDR
-pla
-jsr ssd1306_wchar
-pla
-jsr ssd1306_wchar
-pla
-jsr ssd1306_wchar
-pla
-jsr ssd1306_wchar
-rts
-
-i2c_start: ; i2c addr in I2CADDR and RW bit is in C
+i2c_start:
   lda I2CADDR
   rol ; Shift in carry
-  sta outb ; Save addr + rw bit
+  sta outb ; Save addr + r/w bit
 
-  lda #SCL_INV ; Start with SCL as INPUT HIGH. If bit 0 is used we can continue from here with inc/dec.
+  lda #SCL_INV
   and DDRB
-  sta DDRB
+  sta DDRB ; Start with SCL as input HIGH - that way we can inc/dec from here
 
   lda #SDA ; Ensure SDA is output low before SCL is LOW
   ora DDRB
@@ -234,31 +263,29 @@ i2c_start: ; i2c addr in I2CADDR and RW bit is in C
   and DRB
   sta DRB
 
-  lda #SCL_INV ; Ensure SCL is low when output (currently high because it's an input)
+  lda #SCL_INV ; Ensure SCL is low when it turns to output
   and DRB
   sta DRB
-  inc DDRB ; Set to output by incrementing the direction register
-  ; Fall through to send address + RW bit.
-  ; After a start condition we always SEND the address byte, so we don't need to return.
+  inc DDRB ; Set to output by incrementing the direction register == OUT, LOW
 
-  ; Send an i2c byte - byte is in outb
-  ; From here on we can assume OUTPUTs are LOW and INPUTS are HIGH.
-  ; Maybe some of the juggling above is not necessary but let's not assume for now
+  ; Fall through to send address + RW bit
+  ; After a start condition we always send the address byte so we don't need to RTS+JSR again here
+
 i2cbyteout:
   lda #SDA_INV ; In case this is a data byte we set SDA LOW
   and DRB
   sta DRB
   ldx #8
-  bne first ; BRA - skip the inc since SCL is already OUTPUT LOW
-I2CADDRloop: ; At start of loop SDA and SCL are both OUTPUT LOW
-  inc DDRB ;
+  bne first ; BRA - skip INC since first time already out, low
+I2Cbyteloop:
+  inc DDRB ; SCL out, low
 first:
-  asl outb ; Put MSB in carry
-  bcc seti2cbit0 ; If data bit was low
+  asl outb ; MSB to carry
+  bcc seti2cbit0 ; If bit was low
   lda DDRB       ; else set it high
   and #SDA_INV
   sta DDRB
-  bcs wasone ; BRA
+  bcs wasone ; BRA doesn't exist on 6507
 seti2cbit0:
   lda DDRB
   ora #SDA
@@ -266,269 +293,63 @@ seti2cbit0:
   wasone:
   dec DDRB
   dex
-  bne I2CADDRloop
+  bne I2Cbyteloop
 
   inc DDRB
-  lda DDRB ; Set SDA to INPUT (=HIGH)
+
+  lda DDRB ; Set SDA to INPUT (HIGH)
   and #SDA_INV
   sta DDRB
 
-  dec DDRB ; Set clock HIGH
-  lda DRB ; Check ACK bit
-  clc
+  dec DDRB ; Clock high
+  lda DRB  ; Check ACK bit
+  sec
   and #SDA
-  bne nack ; Didn't go low?
-  sec ; Set carry to indicate ACK
+  bne nack
+  clc ; Clear carry on ACK
   nack:
   inc DDRB ; SCL low
   rts
 
-i2cbytein: ; Assume SCL is LOW
-  lda DDRB       ; Set SDA to input
+i2cbytein:
+  ; Assume SCL is low from address byte
+  lda DDRB  ; SDA, input
   and #SDA_INV
   sta DDRB
   lda #0
   sta inb
   ldx #8
-byteinloop:
-  clc ; Clearing here for more even cycle
+i2cbyteinloop:
+  clc
   dec DDRB ; SCL HIGH
-  lda DRB; Let's read after SCL goes high
+  lda DRB ; Let's read after SCL goes high
   and #SDA
   beq got0
   sec
   got0:
-  rol inb ; Shift carry into input byte
+  rol inb ; Shift bit into the input byte
   inc DDRB ; SCL LOW
   dex
-  bne byteinloop
-  lda DDRB ; Send NACK == SDA high (because we're ony fetching single bytes)
+  bne i2cbyteinloop
+
+  lda DDRB ; Send NACK == SDA high (only single bytes for now)
   and #SDA_INV
   sta DDRB
   dec DDRB ; SCL HIGH
   inc DDRB ; SCL LOW
-rts ; Input byte in inb
+rts
 
 i2c_stop:
   lda DDRB ; SDA low
   ora #SDA
   sta DDRB
   dec DDRB ; SCL HIGH
-  lda DDRB       ; Set SDA high after SCL == Stop condition.
+  lda DDRB ; Set SDA high after SCL == Stop condition
   and #SDA_INV
   sta DDRB
   rts
 
-i2c_test:
-  lda #$77 ; Address $77 = BMP180 address
-  sta I2CADDR
-  lda #$D0 ; Register in A
-  jsr i2c_read
-  sec
-  rts
-  failed:
-  lda #0
-  rts
-
-;i2c_read takes i2c address in I2CADDR and register in A
-; Returns: Data byte in A
-i2c_read:
-  pha
-  clc ; We "write" the register we want to read from
-  jsr i2c_start
-  bcc readfail
-  pla
-  sta outb
-  jsr i2cbyteout
-  ;jsr i2c_stop
-  sec ; Now we read the register data
-  jsr i2c_start ; Restart and read byte
-  jsr i2cbytein
-  jsr i2c_stop
-  lda inb
-  readfail:
-  rts
-
-;i2c_write takes i2c address in I2CADDR, register in A, and data in Y
-; Returns: Last ACK in C
-  i2c_write:
-  pha ; Save output byte
-  clc ; "write" the address
-  jsr i2c_start
-  bcc wreadfail
-  pla ; Load output byte
-  sta outb
-  clc ; Clear to write
-  jsr i2cbyteout
-  tya
-  sta outb
-  jsr i2cbyteout
-  jsr i2c_stop
-  wreadfail:
-  rts
-
-ssd1306_w:
-  pha ; I2COUTBYTE
-  clc ; Write flag
-  jsr i2c_start
-  lda #$40 ; Co bit 0, D/C# 1
-  sta outb
-  jsr i2cbyteout
-  pla ; I2COUTBYTE
-  sta outb
-  jsr i2cbyteout
-  jsr i2c_stop
-  rts
-
-ssd1306_clear:
-clc
-jsr i2c_start
-lda #$40 ; Co bit 0, D/C# 1
-sta outb
-jsr i2cbyteout
-ldx #64
-clearrow:
-ldy #128
-stx xtmp ; Save outer counter
-clearcolumn:
-lda #0
-clc ; Clear previous ACK
-jsr i2cbyteout ; outb should stay 0 for the duration
-dey
-bne clearcolumn
-ldx xtmp ; Restore counter
-dex
-bne clearrow
-jsr i2c_stop
-rts
-
-ssd1306_clearcolumn:
-lda #$21 ; Set column cmd
-jsr ssd1306_cmd
-;lda #$40 ; Data byte
-;sta outb
-;jsr i2cbyteout
-lda #0 ; Start column 0
-sta outb
-jsr i2cbyteout
-lda #$7f ; End column 127
-sta outb
-jsr i2cbyteout
-jsr i2c_stop
-rts
-
-; Takes page (0-7) in A
-;Destroys ytmp
-ssd1306_setpage:
-sta ytmp
-jsr ssd1306_clearcolumn
-lda #$22 ; Set page cmd
-jsr ssd1306_cmd
-;lda #$40 ; Data byte?
-;sta outb
-;jsr i2cbyteout
-lda ytmp
-beq page0
-sta outb
-jsr i2cbyteout
-dec ytmp
-lda ytmp
-sta outb
-jsr i2cbyteout
-pageset:
-jsr i2c_stop
-rts
-
-page0:
-sta outb
-jsr i2cbyteout
-lda #7
-sta outb
-jsr i2cbyteout
-jsr i2c_stop
-rts
-
-; ssd1306_cmd takes command in A
-;Overwrites I2CADDR
-; Returns: Nothing
-ssd1306_cmd:
-pha ; I2COUTBYTE
-lda #$3c
-sta I2CADDR
-clc ; Write flag
-jsr i2c_start
-lda #0 ; Co = 0, D/C# = 0
-sta outb
-jsr i2cbyteout
-pla
-sta outb
-jsr i2cbyteout
-;jsr i2c_stop
-rts
-
-ssd1306_wchar:
-  jsr ssd1306_sendchar
-  jsr i2c_stop
-  rts
-
-ssd1306_wstring:
-  ldy #0
-  stringloop:
-  lda (stringp),y
-  beq sent
-  sty ytmp
-  pha
-  jsr serial_tx
-  pla
-  jsr ssd1306_sendchar
-  ldy ytmp
-  iny
-  bne stringloop
-  sent:
-  jsr i2c_stop
-  rts
-
-ssd1306_sendchar:
-sec
-sbc #$20 ; We start from 0x20
-pha ; Save out byte
-lda #$3C ; 78 on back of module is 3C << 1.
-sta I2CADDR
-clc ; Write
-jsr i2c_start
-lda #$40 ; Co bit 0, D/C# 1
-sta outb
-jsr i2cbyteout
-lda #0
-sta outb
-jsr i2cbyteout
-pla ; Fetch out byte
-tay
-lda fontc1, y
-sta outb
-jsr i2cbyteout
-lda fontc2, y
-sta outb
-jsr i2cbyteout
-lda fontc3, y
-sta outb
-jsr i2cbyteout
-lda fontc4, y
-sta outb
-jsr i2cbyteout
-lda fontc5, y
-sta outb
-jsr i2cbyteout
-lda #0
-sta outb
-jsr i2cbyteout
-clc ; Assuming ACK in carry, outb still 0
-lda #0
-jsr i2cbyteout
-rts
-
-
-  ssd1306_init:
+ssd1306_init:
   clc
   jsr i2c_start
   ldy #0
@@ -539,118 +360,224 @@ rts
   sta outb
   jsr i2cbyteout
   iny
-  bne initloop; BRA
+  bne initloop ; BRA
   init_done:
-  JSR i2c_stop
+  jsr i2c_stop
   rts
 
+  ssd1306_clear:
+  clc ; Write
+  jsr i2c_start
+  lda #$40 ; Co bit 0, D/C# 1
+  sta outb
+  jsr i2cbyteout
+  ;outb is already 0
+  ldy #0
+  clearcolumn:
+  jsr i2cbyteout
+  jsr i2cbyteout
+  jsr i2cbyteout
+  jsr i2cbyteout
+  dey
+  bne clearcolumn ; Inner loop
+  jsr i2c_stop
+  rts
+
+ssd1306_sendchar:
+tay ; Save out byte
+clc ; Write
+jsr i2c_start
+lda #$40 ; Co bit 0, D/C 1
+sta outb
+jsr i2cbyteout
+;outb already 0
+jsr i2cbyteout ; Send 0
+lda fontc1-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc2-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc3-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc4-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc5-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+;Leaving i2c tx open
+tya
+jsr serial_tx
+rts
+
+ssd1306_wstring:
+ldy #0
+stringloop:
+lda (stringp),y
+beq sent
+sty xtmp
+jsr ssd1306_sendchar
+ldy xtmp
+iny
+bne stringloop
+sent:
+jsr i2c_stop
+rts
+
+qsdelay:
+lda #244
+sta WTD1KDI ; 244 * 1024 = 249856 ~= quarter second
+waitqs:
+lda READTDI
+bne waitqs ; Loop until timer runs out
+rts
+
+; jsr = 6 cycles
+; sta (zp) = 3 cycles
+; (WTD8DI -1) * 8 cycles
+; We can ignore branches while timer not 0
+;lda (zp) = 3 cycles
+; bne = 2 cycles (not taken since timer expired)
+; rts = 6 cycles
+; = 20 + ((WTD8DI - 1) * 8) cycles
+
+delay_short:
+sta WTD8DI ; Divide by 8 = A contains ticks to delay/8
+shortwait:
+nop; Sample every 8 cycles instead of every 6
+lda READTDI
+bne shortwait
+rts
+
+;Returns byte in A - assumes 9600 baud = ~104us/bit, 1 cycle = 1us (1 MHz)
+;We should call this ASAP when RX pin goes low - let's assume it just happened (13 cycles ago)
+serial_rx:
+;Minimum 13 cycles before we get here
+lda #15 ; 1.5 period-ish ; 2 cycles
+jsr delay_short ; 140c
+ldx #8 ; 2 cycles
+;149 cycles to get here
+serial_rx_loop: ;103 cycles
+lda DRA ; Read RX bit 0 ; 3 cycles
+lsr ; Shift received bit into carry - in many cases might be safe to just lsr DRA ; 2 cycles
+ror inb ; Rotate into MSB 5 cycles
+lda #9 ; 2 cycles
+jsr delay_short ; Delay until middle of next bit - overhead; 84 cycles
+nop ; 2c
+dex ; 2c
+bne serial_rx_loop ; 3 cycles
+;Should already be in the middle of the stop bit
+; We can ignore the actual stop bit and use the time for other things
+; Received byte in inb
+lda inb ; Put in A
+rts
+
+serial_tx:
+sta outb
+lda #$fd ; Inverse bit 1
+and DRA
+sta DRA ; Start bit
+lda #8 ; 2c
+jsr delay_short ; 20 + (8-1)*8 = 76c ; Start bit total 104 cycles - 104 cycles measured
+nop ; 2c
+nop ; 2c
+ldx #8 ; 2c
+serial_tx_loop:
+lsr outb ; 5c
+lda DRA ; 3c
+bcc tx0 ; 2/3c
+ora #2 ; TX bit is bit 1 ; 2c
+bcs bitset ; BRA 3c
+tx0:
+nop ; 2c
+and #$fd ; 2c
+bitset:
+sta DRA ; 3c
+; Delay one period - overhead ; 101c total ; 103c measured
+lda #8 ; 2c
+jsr delay_short ; 20 + (8-1)*8 = 76c
+dex ; 2c
+bne serial_tx_loop ; 3c
+nop; 2c ; Last bit 98us counted, 100us measured
+nop; 2c
+nop; 2c
+nop; 2c
+lda DRA ;3c
+ora #2 ; 2c
+sta DRA ; Stop bit 3c
+lda #8 ; 2c
+jsr delay_short
+rts
+
+printbyte:
+    pha ; Save A
+    jsr bytetoa
+    pha
+    lda xtmp
+    jsr ssd1306_sendchar
+    jsr i2c_stop
+    pla
+    jsr ssd1306_sendchar
+    jsr i2c_stop
+    pla ; Restore A
+    rts
+
+    bytetoa: ;This SR puts LSB in A and MSB in HXH - as ascii using hextoa.
+        pha
+        lsr
+        lsr
+        lsr
+        lsr
+        clc
+        jsr hextoa
+        sta xtmp
+        pla
+        and #$0F
+        jsr hextoa
+        rts
+
+        hextoa:
+        ; wozmon-style
+        ;    and #%00001111  ; Mask LSD for hex print.
+        ; Already masked when we get here.
+            ora #'0'        ; Add '0'.
+            cmp #'9'+1      ; Is it a decimal digit?
+            bcc ascr        ; Yes, output it.
+            adc #$06        ; Add offset for letter.
+        ascr:
+            rts
+
+
+
 ssd1306_inittab:
-.byte $ae		;turn off display
-.byte $d5		;set display clock div
-.byte $f0		;ratio 0x80 default - speed up with $f0 to minimize screen tearing
-.byte $A8		;set multiplex
-.byte $3f		; 128x64
-;.byte $d3		;set display offset
-;.byte $00    ; None
-.byte $40		;set startline
-.byte $8d		;charge pump
-.byte $14		;vccstate 14
-.byte $a1 ; Segment re-map
-.byte $c8 ; Com output scan direction
-.byte $20		;memorymode
-.byte $00 ;
-.byte $da		;set com pins
-.byte $12		; 02 128x32 12 ; ??
-.byte $81	  ; set contrast
-.byte $7f		;contrast, $3f = One quarter
-.byte $d9		;set precharge
-.byte $11		;vcc state f1
-;.byte $db		;set vcom detect
-;.byte $20   ; 0.77V (Default)
-.byte $a4		;display all on resume
-;.byte $a6		;A6 = normal display, A7 = invert
-.byte $af		;display on
-.byte $b0, $10, $00 ; Zero page and column
+.byte $ae   ; Turn off display
+.byte $d5   ; set display clock divider
+.byte $f0   ; 0x80 default - $f0 is faster for less tearing
+.byte $a8   ; set multiplex
+.byte $3f   ; for 128x64
+.byte $40   ; Startline 0
+.byte $8d   ; Charge pump
+.byte $14   ; VCCstate 14
+.byte $a1   ; Segment remap
+.byte $c8   ; Com output scan direction
+.byte $20   ; Memory mode
+.byte $00   ;
+.byte $da   ; Com-pins
+.byte $12
+.byte $fe   ; Set contrast - full power!
+.byte $7f   ; About half
+.byte $d9   ; Set precharge
+.byte $11   ; VCC state 11
+.byte $a4   ; Display all on resume
+.byte $af   ; Display on
+.byte $b0, $10, $00 ; Page 0, column 0.
 .byte $ff ; Stop byte
 
-hextoa:
-; wozmon-style
-;    and #%00001111  ; Mask LSD for hex print.
-; Already masked when we get here.
-    ora #'0'        ; Add '0'.
-    cmp #'9'+1      ; Is it a decimal digit?
-    bcc ascr        ; Yes, output it.
-    adc #$06        ; Add offset for letter.
-ascr:
-    rts
-
-
-bytetoa: ;This SR puts LSB in A and MSB in Y - as ascii using hextoa.
-    pha
-    lsr
-    lsr
-    lsr
-    lsr
-    clc
-    jsr hextoa
-    tay
-    pla
-    and #$0F
-    jsr hextoa
-    rts
-
- serial_tx: ; Takes output in A
-sta outb
-lda #$fd
-and DRA
-sta DRA ; Start BIT
-; Delay one period
-lda #21
-jsr delay_short
-ldx #8
-serial_tx_loop:
-lsr outb
-lda DRA
-bcc tx0
-ora #2 ; TX bit is bit 1
-bcs bitset
-tx0:
-and #$fd
-bitset:
-sta DRA
-; Delay one period - overhead
-lda #21
-jsr delay_short
-dex
-bne serial_tx_loop
-lda DRA
-ora #2
-sta DRA ; Stop bit
-lda #21
-jsr delay_short
-rts
-
-serial_rx: ; Returns byte in A - assumes 4800 baud
-;We're only here if RX pin is low - let's assume it just happened
-lda #31 ; 1.5 period
-jsr delay_short
-ldx #8
-serial_rx_loop:
-lda DRA ; Read RX bit 0
-lsr ; Shift received bit into carry - in many cases it might be safe to just lsr DRA
-ror inb ; Rotate into MSB
-lda #21
-jsr delay_short ; Delay until middle of next bit
-dex
-bne serial_rx_loop
-lda #11
-jsr delay_short ; Delay until start of stop bit so we don't mistake last bit of 0 for a new start bit
-;We can ignore stop bit and use the time for other things
-;Received byte in inb
-lda inb
-rts
-
-.include "95char5x7font.s"
+.include "./95char5x7font.s" ; Font
 
 .segment "VECTORS6502"
 .ORG $fffa
