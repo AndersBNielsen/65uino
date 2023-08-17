@@ -82,7 +82,7 @@ userstring:
           sta $00,x
 
           lda #$BC ; Bit 0, 1 are SCL and SDA, bit 6 is input button.
-          sta DDRB ; Set whole B register to output
+          sta DDRB ; Set B register direction to #%10111100
           ; Reset state of DDRA is $00.
 
           lda #$ff ; Rest of port is input
