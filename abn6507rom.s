@@ -13,7 +13,9 @@ outb    = I2CRAM +2
 xtmp    = I2CRAM +3
 stringp = I2CRAM +4 ; (and +5)
 
-timer2  = stringp + 2
+timer2  = stringp ; We're not going to be printing strings while waiting for timer2
+;Stringp +1 free for temp.
+cursor  = stringp +2
 rxcnt   = stringp + 3
 txcnt   = rxcnt +1
 runpnt  = txcnt +1
@@ -52,17 +54,64 @@ WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 
 .segment "USERLAND"
 userland:
-lda #<userstring
+jsr ssd1306_clear
+
+checkrightbutton:
+bit DRA
+bpl rightbutton
+bvc leftbutton
+bvs checkrightbutton ; BRA
+
+rightbutton:
+lda #<username
 sta stringp
-lda #>userstring
+lda #>username
 sta stringp+1
-jsr ssd1306_wstring
+jsr serial_wstring
+
+checkleftbutton:
+bit DRA
+bvc leftbutton
+bvs checkleftbutton ; Loop waiting for button
+
+leftbutton:
+lda #<command
+sta stringp
+lda #>command
+sta stringp+1
+jsr serial_wstring
+lda #0
+sta mode
+jmp main
+
+command:
+;.byte "sudo poweroff"
+.byte $0A ; Enter key
+.byte $0 ; String end
+
+username:
+.byte "pi"
+.byte $0A ; Enter key
+.byte $0 ; String end
+
+password:
+.byte "6502forever"
+.byte $0A
+.byte $0
+
+w4serial:
+lda DRA ; Check serial 3c
+and #$01 ; 2c
+bne w4serial ; 2c
+jsr serial_rx ; Get character
+jsr printbyte
+jmp w4serial
+
 
 halt:
-jmp halt
-
-userstring:
-.asciiz "Now we can test whatever code we want with our new serial bootloader! #65uino"
+lda #0
+sta mode
+jmp welcomemsg ; Get ready for new code
 
 .segment "RODATA"
 .org $F000 ; Not strictly needed with CA65 but shows correct address in listing.txt
@@ -133,10 +182,6 @@ bit DRB
 bvs quartersecond
 sta WTD64DI ; 244*64 = 15616 ~= 16ms
 jsr ssd1306_clear ; We only end up here if button is pressed
-lda #'O'
-jsr serial_tx
-lda #'K'
-jsr serial_tx
 bne wait ; BRA
 quartersecond:
 sta WTD1KDI ; 244 * 1024 = 249856 ~= quarter second
@@ -181,6 +226,11 @@ cmp #1
 bne txt
 ;Time to parse data instead of txt - aka, our bootloader!
 sty rxcnt
+jsr ssd1306_clear
+lda #0
+jsr ssd1306_setline
+lda #0
+jsr ssd1306_setcolumn
 lda #<loaded
 sta stringp
 lda #>loaded
@@ -197,9 +247,16 @@ sta stringp+1
 jsr ssd1306_wstring
 
 waittorun:
-bit DRB
-bvs waittorun
+jsr qsdelay
+jsr qsdelay
+jsr qsdelay
+jsr qsdelay
 jsr ssd1306_clear
+lda #0
+sta cursor
+jsr ssd1306_setline
+lda #0
+jsr ssd1306_setcolumn
 
 lda #$0c
 sta runpnt
@@ -212,11 +269,17 @@ txt:
 sty rxcnt
 tx:
 ldy txcnt
+bne notfirst
+lda serialbuf, y
+cmp #$01 ; SOH
+bne notfirst
+sta mode
+jmp main ; Bootloader character via serial
+notfirst:
 cpy rxcnt
 beq gowait
 lda serialbuf, y
 jsr ssd1306_sendchar
-jsr i2c_stop
 inc txcnt
 jmp tx
 noserial:
@@ -239,7 +302,7 @@ loaded:
 .asciiz "Loaded "
 
 bytes:
-.asciiz " bytes of data. Press user button to clear screen and run code."
+.asciiz " bytes of data. Running code in 1 second."
 
 welcome:
 .byte "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
@@ -366,6 +429,11 @@ ssd1306_init:
   rts
 
   ssd1306_clear:
+  lda #0
+  sta cursor
+  jsr ssd1306_setline
+  lda #0
+  jsr ssd1306_setcolumn
   clc ; Write
   jsr i2c_start
   lda #$40 ; Co bit 0, D/C# 1
@@ -381,9 +449,23 @@ ssd1306_init:
   dey
   bne clearcolumn ; Inner loop
   jsr i2c_stop
+  return:
   rts
 
 ssd1306_sendchar:
+cmp #$0D ; Newline
+beq newline
+cmp #$0A ; CR - also newline
+beq newline
+cmp #$08 ; Backspace
+beq backspace
+cmp #$7f ; Delete - also backspace
+beq backspace
+cmp #$03
+bne startprint
+jsr ssd1306_clear
+rts
+startprint:
 tay ; Save out byte
 clc ; Write
 jsr i2c_start
@@ -409,10 +491,140 @@ sta outb
 jsr i2cbyteout
 jsr i2cbyteout ; Send 0
 jsr i2cbyteout ; Send 0
-;Leaving i2c tx open
-tya
-jsr serial_tx
+jsr i2c_stop
+;tya
+;jsr serial_tx
+lda cursor
+clc
+adc #1
+and #127
+sta cursor
+bne l451
+jsr ssd1306_clear ; Clear screen reset cursor
+l451:
+and #$0F ; Check if we started a new line and need to reset cursor position.
+bne nonewline
+jsr ssd1306_setcolumn
+nonewline:
 rts
+
+newline:
+;jsr serial_tx ; Echo the newline
+lda cursor
+adc #16
+and #$70 ; Ensure range - ignore character position
+sta cursor
+lsr
+lsr
+lsr
+lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
+jsr ssd1306_setline
+lda #0
+jsr ssd1306_setcolumn ; CR
+rts
+
+backspace:
+;jsr serial_tx ; Echo back the backspace/del
+lda cursor
+beq zeropos ; No roll back to 127
+sec
+sbc #1
+sta cursor ; Save
+and #$0F ; Discard page
+jsr ssd1306_setcolumn ; Set new column
+lda cursor
+lsr
+lsr
+lsr
+lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
+jsr ssd1306_setline
+
+clc ; Write
+jsr i2c_start
+lda #$40 ; Co bit 0, D/C 1
+sta outb
+jsr i2cbyteout ;Send 8 blank columns
+;outb already 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2c_stop
+
+lda cursor
+and #$0F ; Discard page
+jsr ssd1306_setcolumn ; Set new column
+lda cursor
+lsr
+lsr
+lsr
+lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
+jsr ssd1306_setline
+
+zeropos:
+rts
+
+ssd1306_setcolumn:
+asl ; 15 >> >> >> 120
+asl
+asl
+pha
+lda #$21 ; Set column command (0-127)
+jsr ssd1306_cmd
+pla
+sta outb
+jsr i2cbyteout
+;dec xtmp ; Make end column (119)
+;lda xtmp
+;and #127 ; Make sure we're in range
+lda #$7f ; 127
+sta outb
+jsr i2cbyteout
+jsr i2c_stop
+rts
+
+;Takes line(page) in A
+ssd1306_setline:
+pha ; Save line
+lda #$22 ; Set page cmd
+jsr ssd1306_cmd
+pla ; Fetch line
+sta outb
+jsr i2cbyteout
+lda #7 ; Ensure range
+sta outb
+jsr i2cbyteout
+jsr i2c_stop
+rts
+
+;Takes command in A
+ssd1306_cmd:
+pha ; Save command
+lda #$3c ; SSD1306 address
+sta I2CADDR
+clc ;Write flag
+jsr i2c_start
+;A is 0 == Co = 0, D/C# = 0
+sta outb
+jsr i2cbyteout
+pla ; Fetch command
+sta outb
+jsr i2cbyteout
+rts
+
+serial_wstring:
+ldy #0
+txstringloop:
+lda (stringp),y
+beq sent
+jsr serial_tx
+iny
+bne txstringloop
+jmp sent ; In case of overflow
 
 ssd1306_wstring:
 ldy #0
@@ -425,7 +637,6 @@ ldy xtmp
 iny
 bne stringloop
 sent:
-jsr i2c_stop
 rts
 
 qsdelay:
@@ -519,10 +730,8 @@ printbyte:
     pha
     lda xtmp
     jsr ssd1306_sendchar
-    jsr i2c_stop
     pla
     jsr ssd1306_sendchar
-    jsr i2c_stop
     pla ; Restore A
     rts
 
