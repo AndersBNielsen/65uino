@@ -15,12 +15,14 @@ stringp = I2CRAM +4 ; (and +5)
 
 timer2  = stringp ; We're not going to be printing strings while waiting for timer2
 ;Stringp +1 free for temp.
-cursor  = stringp +2
+mode  = stringp +2
 rxcnt   = stringp + 3
 txcnt   = rxcnt +1
 runpnt  = txcnt +1
-mode    = runpnt +2
-serialbuf = runpnt +3 ; Address #12 / 0x0c
+cursor    = runpnt +2
+scroll  = runpnt +3
+tflags  = runpnt +4
+serialbuf = runpnt +5 ; Address #16 / 0x10
 
 SCL     = 1 ; DRB0 bitmask
 SCL_INV = $FE ; Inverted for easy clear bit
@@ -54,7 +56,17 @@ WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 
 .segment "USERLAND"
 userland:
-jsr ssd1306_clear
+/*
+lda #<welcome
+sta stringp
+lda #>welcome
+sta stringp+1
+jsr ssd1306_wstring
+
+lda #0
+sta mode
+
+
 
 checkrightbutton:
 bit DRA
@@ -95,9 +107,11 @@ username:
 .byte $0 ; String end
 
 password:
-.byte "6502forever"
+;.byte "6502forever"
 .byte $0A
 .byte $0
+
+*/
 
 w4serial:
 lda DRA ; Check serial 3c
@@ -195,6 +209,7 @@ and #$01 ; 2c
 bne gonoserial ; 2c
 tay ; A already 0
 sta txcnt
+;lda #64
 sta timer2
 
 rx:
@@ -203,10 +218,11 @@ beq rxtimeout ; Branch if timeout
 lda DRA ; Check serial 3c
 and #$01 ; 2c
 bne rx ; Wait for RX until timeout
+;lda #64
 sta timer2 ; Reset timer
 jsr serial_rx ; 6c
 sta serialbuf, y
-cpy #128-21 ; Leaves 9 bytes for stack
+cpy #128-25 ; Leaves 9 bytes for stack
 beq rx_err
 iny
 bne rx ; BRA (Y never 0)
@@ -227,10 +243,6 @@ bne txt
 ;Time to parse data instead of txt - aka, our bootloader!
 sty rxcnt
 jsr ssd1306_clear
-lda #0
-jsr ssd1306_setline
-lda #0
-jsr ssd1306_setcolumn
 lda #<loaded
 sta stringp
 lda #>loaded
@@ -258,7 +270,7 @@ jsr ssd1306_setline
 lda #0
 jsr ssd1306_setcolumn
 
-lda #$0c
+lda #$10
 sta runpnt
 lda #0
 sta runpnt+1
@@ -296,7 +308,7 @@ loading:
 .asciiz "Loading... "
 
 overflow:
-.asciiz "Buffer overflow!"
+.asciiz "OF!"
 
 loaded:
 .asciiz "Loaded "
@@ -334,7 +346,7 @@ i2c_start:
   ; Fall through to send address + RW bit
   ; After a start condition we always send the address byte so we don't need to RTS+JSR again here
 
-i2cbyteout:
+i2cbyteout: ; Clears outb
   lda #SDA_INV ; In case this is a data byte we set SDA LOW
   and DRB
   sta DRB
@@ -431,6 +443,7 @@ ssd1306_init:
   ssd1306_clear:
   lda #0
   sta cursor
+  sta tflags ; Reset scroll
   jsr ssd1306_setline
   lda #0
   jsr ssd1306_setcolumn
@@ -449,19 +462,30 @@ ssd1306_init:
   dey
   bne clearcolumn ; Inner loop
   jsr i2c_stop
+
+  lda #$d3 ; Clear scroll
+  jsr ssd1306_cmd
+  lda #0
+  sta scroll
+  sta outb
+  jsr i2cbyteout
+  jsr i2c_stop
   return:
   rts
 
+gonewline:
+jmp newline
+
 ssd1306_sendchar:
 cmp #$0D ; Newline
-beq newline
+beq gonewline
 cmp #$0A ; CR - also newline
-beq newline
+beq gonewline
 cmp #$08 ; Backspace
 beq backspace
 cmp #$7f ; Delete - also backspace
 beq backspace
-cmp #$03
+cmp #$0C ; Form feed, CTRL+L on your keyboard.
 bne startprint
 jsr ssd1306_clear
 rts
@@ -499,38 +523,42 @@ clc
 adc #1
 and #127
 sta cursor
-bne l451
-jsr ssd1306_clear ; Clear screen reset cursor
+
+lda scroll
+asl ; Convert scroll offset to cursor count - units. 8 << 2 == 16 == Second line
+clc ; Need this?
+adc cursor
+and #$7F ; Throw away only the top bit since scroll offset might have it set
+
+bne l451 ; Again - not taking scroll offset into account..
+lda #1 ; We reached wraparound so we start scrolling
+sta tflags ; Terminal flags
 l451:
+lda cursor
 and #$0F ; Check if we started a new line and need to reset cursor position.
 bne nonewline
 jsr ssd1306_setcolumn
+lda tflags ; Check scroll flag
+beq nonewline
+jsr ssd1306_scrolldown
 nonewline:
-rts
-
-newline:
-;jsr serial_tx ; Echo the newline
-lda cursor
-adc #16
-and #$70 ; Ensure range - ignore character position
-sta cursor
-lsr
-lsr
-lsr
-lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
-jsr ssd1306_setline
-lda #0
-jsr ssd1306_setcolumn ; CR
 rts
 
 backspace:
 ;jsr serial_tx ; Echo back the backspace/del
 lda cursor
-beq zeropos ; No roll back to 127
+bne noroll ; No roll back to 127
+lda #128
+noroll:
 sec
 sbc #1
 sta cursor ; Save
 and #$0F ; Discard page
+cmp #$0F ; Wrapped back a line
+bne nocolwrap
+ldy #0
+sty tflags ; Scroll off
+nocolwrap:
 jsr ssd1306_setcolumn ; Set new column
 lda cursor
 lsr
@@ -543,16 +571,11 @@ clc ; Write
 jsr i2c_start
 lda #$40 ; Co bit 0, D/C 1
 sta outb
-jsr i2cbyteout ;Send 8 blank columns
-;outb already 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
+ldy #9
+send0:
+jsr i2cbyteout ; cmd byte + 8 x Send 0
+dey
+bne send0
 jsr i2c_stop
 
 lda cursor
@@ -564,9 +587,72 @@ lsr
 lsr
 lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
 jsr ssd1306_setline
-
 zeropos:
 rts
+
+newline:
+;jsr serial_tx ; Echo the newline
+lda cursor
+adc #16
+and #$70 ; Ensure range - ignore character position
+sta cursor
+lda scroll
+asl ; Convert scroll offset to cursor count - units. 8 << 2 == 16 == Second line
+clc ; Need this?
+adc cursor
+and #$70 ; Throw away top bit since scroll offset might have it set
+bne nowrap ; Now factoring in scroll offset!
+ldy #1
+sty tflags
+nowrap:
+lda cursor
+lsr
+lsr
+lsr
+lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
+jsr ssd1306_setline
+lda #0
+jsr ssd1306_setcolumn ; CR
+lda tflags
+beq notscrolling
+jsr ssd1306_scrolldown
+notscrolling:
+rts
+
+ssd1306_scrolldown:
+  lda #$d3
+  jsr ssd1306_cmd
+  lda scroll
+  adc #8 ; Doesn't care about bits 6+7
+  sta scroll
+  sta outb
+  jsr i2cbyteout
+  jsr i2c_stop
+
+  clc ; Write
+  jsr i2c_start
+  lda #$40 ; Co bit 0, D/C 1
+  sta outb
+  ldy #128 ; Command byte + One line/page... Writing the last column might increase the page pointer..
+  ; And the last column should always be clear anyway, so 128 instead of 129 so we don't reset to the first
+  ;column on the wrong page.
+  sendblanks:
+  jsr i2cbyteout ; Send 0
+  dey
+  bne sendblanks
+  jsr i2c_stop
+  jsr ssd1306_resetcolumn ; Column always 0 after scroll
+  rts
+
+  ssd1306_resetcolumn:
+  lda #$21 ; Set column command (0-127)
+  jsr ssd1306_cmd
+  jsr i2cbyteout ; outb already 0
+  lda #$7f ; 127
+  sta outb
+  jsr i2cbyteout
+  jsr i2c_stop
+  rts
 
 ssd1306_setcolumn:
 asl ; 15 >> >> >> 120
@@ -578,9 +664,6 @@ jsr ssd1306_cmd
 pla
 sta outb
 jsr i2cbyteout
-;dec xtmp ; Make end column (119)
-;lda xtmp
-;and #127 ; Make sure we're in range
 lda #$7f ; 127
 sta outb
 jsr i2cbyteout
@@ -668,7 +751,7 @@ rts
 ;We should call this ASAP when RX pin goes low - let's assume it just happened (13 cycles ago)
 serial_rx:
 ;Minimum 13 cycles before we get here
-lda #15 ; 1.5 period-ish ; 2 cycles
+lda #34 ; 1.5 period-ish ; 2 cycles - 15 for 9600 baud, 34 for 4800
 jsr delay_short ; 140c
 ldx #8 ; 2 cycles
 ;149 cycles to get here
@@ -676,7 +759,7 @@ serial_rx_loop: ;103 cycles
 lda DRA ; Read RX bit 0 ; 3 cycles
 lsr ; Shift received bit into carry - in many cases might be safe to just lsr DRA ; 2 cycles
 ror inb ; Rotate into MSB 5 cycles
-lda #9 ; 2 cycles
+lda #22 ; 2 cycles ;9 for 9600 baud, 22 for 4800 baud (add 104us == 104 / 8 = 13)
 jsr delay_short ; Delay until middle of next bit - overhead; 84 cycles
 nop ; 2c
 dex ; 2c
@@ -692,7 +775,7 @@ sta outb
 lda #$fd ; Inverse bit 1
 and DRA
 sta DRA ; Start bit
-lda #8 ; 2c
+lda #21 ; 2c ; 9600 = 8, 4800 = 21
 jsr delay_short ; 20 + (8-1)*8 = 76c ; Start bit total 104 cycles - 104 cycles measured
 nop ; 2c
 nop ; 2c
@@ -709,7 +792,7 @@ and #$fd ; 2c
 bitset:
 sta DRA ; 3c
 ; Delay one period - overhead ; 101c total ; 103c measured
-lda #8 ; 2c
+lda #21 ; 2c ; 9600 8, 4800 21
 jsr delay_short ; 20 + (8-1)*8 = 76c
 dex ; 2c
 bne serial_tx_loop ; 3c
@@ -720,7 +803,7 @@ nop; 2c
 lda DRA ;3c
 ora #2 ; 2c
 sta DRA ; Stop bit 3c
-lda #8 ; 2c
+lda #21 ; 2c ; 9600 8, 4800 21
 jsr delay_short
 rts
 

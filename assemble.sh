@@ -9,12 +9,12 @@ else
 serial="/dev/cu.usbs*" #macos
 cat < $serial & echo -n $'\x01' > $serial
 pid=$!
-sleep 0.5
+sleep 2
 kill $pid
 wait $pid 2>/dev/null #silence!
 cat < $serial & cat build/userland.bin > $serial
 pid=$!
-sleep 0.5
+sleep 2
 kill $pid
 wait $pid 2>/dev/null #silence!
 fi
