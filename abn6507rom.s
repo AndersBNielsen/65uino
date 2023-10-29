@@ -22,7 +22,8 @@ runpnt  = txcnt +1
 cursor    = runpnt +2
 scroll  = runpnt +3
 tflags  = runpnt +4
-serialbuf = runpnt +5 ; Address #16 / 0x10
+;serialbuf = runpnt +5 ; Address #14 / 0x0E
+serialbuf = $0f
 
 SCL     = 1 ; DRB0 bitmask
 SCL_INV = $FE ; Inverted for easy clear bit
@@ -56,17 +57,14 @@ WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 
 .segment "USERLAND"
 userland:
-/*
-lda #<welcome
-sta stringp
-lda #>welcome
-sta stringp+1
-jsr ssd1306_wstring
 
+lda #'@'
+jsr ssd1306_sendchar
+
+
+/*
 lda #0
 sta mode
-
-
 
 checkrightbutton:
 bit DRA
@@ -148,9 +146,9 @@ jmp welcomemsg ; Get ready for new code
           sta DDRB ; Set B register direction to #%10111100
           ; Reset state of DDRA is $00.
 
-          lda #$ff ; Rest of port is input
+          lda #%11111001 ; Rest of port is input
           sta DRA
-          lda #$02 ; Bit 1 is serial TX (Output)
+          lda #$06 ; Bit 1 is serial TX (Output) & 2 (CTS)
           sta DDRA
 
 jsr qsdelay
@@ -205,11 +203,13 @@ gonoserial:
 jmp noserial
 wait:
 lda DRA ; Check serial 3c
+and #%11111011 ; CTS low
+sta DRA
 and #$01 ; 2c
 bne gonoserial ; 2c
 tay ; A already 0
 sta txcnt
-;lda #64
+lda #64 ; RX wait loop below is 16 cycles
 sta timer2
 
 rx:
@@ -218,8 +218,9 @@ beq rxtimeout ; Branch if timeout
 lda DRA ; Check serial 3c
 and #$01 ; 2c
 bne rx ; Wait for RX until timeout
-;lda #64
+lda #64
 sta timer2 ; Reset timer
+gorx:
 jsr serial_rx ; 6c
 sta serialbuf, y
 cpy #128-25 ; Leaves 9 bytes for stack
@@ -228,6 +229,11 @@ iny
 bne rx ; BRA (Y never 0)
 rx_err:
 sty rxcnt
+lda DRA ;
+ora #4 ; CTS high
+sta DRA
+lda #$13 ; XOFF
+jsr serial_tx ; Inform sender we're out of buffer space
 lda #<overflow
 sta stringp
 lda #>overflow
@@ -236,12 +242,12 @@ jsr ssd1306_wstring
 clc
 bcc tx ; BRA
 rxtimeout:
+sty rxcnt
 lda mode
 beq txt
 cmp #1
 bne txt
 ;Time to parse data instead of txt - aka, our bootloader!
-sty rxcnt
 jsr ssd1306_clear
 lda #<loaded
 sta stringp
@@ -270,15 +276,21 @@ jsr ssd1306_setline
 lda #0
 jsr ssd1306_setcolumn
 
-lda #$10
-sta runpnt
-lda #0
-sta runpnt+1
+;lda #<userland
+;sta runpnt
+;lda #>userland
+;sta runpnt+1
 
-jmp (runpnt)
+;jmp (runpnt)
+jmp userland
 
 txt:
-sty rxcnt
+lda DRA ;
+ora #4 ; CTS high
+sta DRA
+lda #$13 ; XOFF
+jsr serial_tx ; Inform sender to chill while we write stuff to screen
+
 tx:
 ldy txcnt
 bne notfirst
@@ -289,7 +301,7 @@ sta mode
 jmp main ; Bootloader character via serial
 notfirst:
 cpy rxcnt
-beq gowait
+beq txdone
 lda serialbuf, y
 jsr ssd1306_sendchar
 inc txcnt
@@ -298,6 +310,12 @@ noserial:
 lda READTDI
 bne gowait ; Loop until timer runs out
 jmp main ; loop
+txdone:
+lda DRA ;
+and #$fb ; CTS low
+sta DRA
+lda #$11 ; XON
+jsr serial_tx
 gowait:
 jmp wait
 
@@ -487,7 +505,7 @@ cmp #$7f ; Delete - also backspace
 beq backspace
 cmp #$0C ; Form feed, CTRL+L on your keyboard.
 bne startprint
-jsr ssd1306_clear
+;jsr ssd1306_clear
 rts
 startprint:
 tay ; Save out byte
