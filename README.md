@@ -17,3 +17,25 @@ Run assemble.sh to assemble the source file
 (If you use Windows you probably want to use WSL for this^)
 
 The hardware schematic was created using KiCAD 6
+
+## Getting a PCB
+This project is kindly sponsored by JLCPCB. They offer cheap, professional looking PCBs and super fast delivery.
+
+Step 1: Get the gerber file zip package from the /hardware folder
+[hardware/65uinogerbers20231023-nomousebites.zip](https://github.com/AndersBNielsen/65uino/blob/main/hardware/65uinogerbers20231023-nomousebites.zip) for instance.
+
+Step 2: Upload to JLCPCB https://jlcpcb.com
+
+
+![](https://github.com/AndersBNielsen/65uino/blob/main/images/upload.png?raw=true)
+
+Step 3: Pick your color, surface finish and order.
+![https://github.com/AndersBNielsen/65uino/blob/main/images/settings.png?raw=true](https://github.com/AndersBNielsen/65uino/blob/main/images/settings.png?raw=true)
+
+
+![https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true](https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true)
+
+You can use these affilite links to get a board for $2 and also get $54 worth of New User Coupons at: https://jlcpcb.com/?from=Anders
+
+And in case you also want to order a 3D-printed case you can use this link. 
+How to Get a $7 3D Printing Coupon: https://3d.jlcpcb.com/?from=Anders3DP
