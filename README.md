@@ -35,7 +35,7 @@ Step 3: Pick your color, surface finish and order.
 
 ![https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true](https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true)
 
-You can use these affilite links to get a board for $2 and also get $54 worth of New User Coupons at: https://jlcpcb.com/?from=Anders
+You can use these affilite links to get a board for $2 and also get $54 worth of New User Coupons at: https://jlcpcb.com/?from=Anders_N
 
 And in case you also want to order a 3D-printed case you can use this link. 
 How to Get a $7 3D Printing Coupon: https://3d.jlcpcb.com/?from=Anders3DP
