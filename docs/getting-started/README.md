@@ -64,7 +64,7 @@ The BIOS source is in `abn6507rom.s` and the font data lives in `95char5x7font.s
 The serial port is TTL level so you will need to use an TTL to USB FTDI [board](https://www.amazon.com/gp/product/B07WX2DSVB/) or cable to connect the 65uino to your computer.
 The BIOS is set for the serial to work at 4800bps, 8 bits, no parity, 1 stop bit with XON flow control. You can test it form the command prompt with `stty` or with a terminal program like [CoolTerm](https://freeware.the-meiers.org/) which works for all platfroms.
 
-### Build for Mac/Linux
+### Build your ROMs
 
 The `assemble.sh` bash script contains all the steps needed to build and burn the BIOS on Mac or Linux. You will need to check and see if the paths match your installation and change them accordinly. I recommed you add your cc65 \bin folder to your path and then just delete the path from the script.
 
@@ -106,10 +106,29 @@ If you want to just build the rom files, you can run these 2 commands directly. 
 - `abn6507` > this is the BIOS files to burn in the EEPROM
 - `userland.bin` > this is your own program to load though the bootloader
 
-The next important piece comes in this lines
+The variable SERIAL is forced to 0 in line 5 `SERIAL=0` this force the script to execute line 8:
 
 ```bash
 minipro -s -p "SST39SF010A" -w build/abn6507rom.bin
 ```
 
-This will use `minipro` to burn the BIOS ROM. It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your PATH. If you are using the more common 27C512 EEPROM change th e`-p` parameter to *"W27C512@DIP28"*.
+This line will use `minipro` to burn the BIOS ROM and finish the script.
+It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your PATH. If you are using the more common 27C512 EEPROM change th e`-p` parameter to *"W27C512@DIP28"*.
+
+If you want to use this script to transfer your own code, you need to change line 5 and set SERIAL to something other than 0, e.g. `SERIAL=1`.
+Your code should line in the *USERLAND* segment in `anb6507rom.s`
+
+When SERIAL is not 0 this portion of the script will execute.
+
+```bash
+serial="/dev/cu.usbs*" #macos
+eval serial=$serial
+cat -v < $serial & #Keep serial alive
+pid=$! #Save for later
+stty -f $serial $baudrate
+echo -n $'\x01' > $serial #Send SOH to get 65uino ready to receive
+sleep 0.1 #Wait for timeout
+cat build/userland.bin > $serial
+kill $pid #Terminate serial
+wait $pid 2>/dev/null #silence!
+```
