@@ -103,7 +103,7 @@ Let's break this down.
 The scripts assumes cc65 is located in `/opt/homebrew/bin/`, the first 2 lines run the *ca65* assembler and then the *ld65* linker. You should not need to change anything else in this lines.
 If you want to just build the rom files, you can run these 2 commands directly. This generates 2 separate files:
 
-- `abn6507` > this is the BIOS files to burn in the EEPROM
+- `abn6507.bin` > this is the BIOS files to burn in the EEPROM
 - `userland.bin` > this is your own program to load though the bootloader
 
 The variable SERIAL is forced to 0 in line 5 `SERIAL=0` this force the script to execute line 8:
@@ -118,7 +118,7 @@ It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your
 If you want to use this script to transfer your own code, you need to change line 5 and set SERIAL to something other than 0, e.g. `SERIAL=1`.
 Your code should line in the *USERLAND* segment in `anb6507rom.s`
 
-When SERIAL is not 0 this portion of the script will execute.
+When SERIAL is not 0 this portion of the script will execute that will enable you to load your own code via serial.
 
 ```bash
 serial="/dev/cu.usbs*" #macos
@@ -132,3 +132,43 @@ cat build/userland.bin > $serial
 kill $pid #Terminate serial
 wait $pid 2>/dev/null #silence!
 ```
+
+This section is tested and works in MacOS, only the `serial="/dev/cu.usbs*"` line may need modification for Linux.
+
+It initiates `stty` in the USB 2 serial port at 4800 bauds.
+Then to set the 65uino board into serial bootloader mode, line 15 sends a [SOH](https://www.ascii-code.com/character/%E2%90%81) ASCII charater which correspond to HEX 01.
+After that it just sends the `userland.bin` though the serial terminal and kills the process.
+
+Then your code will be loaded into RAM and ready to run in the 65uino.
+
+## 65uino Architecture
+
+To start writing let's begin underatnding the 65uino architecture. The hardware is based on the MOS Technology 6507 chip (made famous by the Atari 2600), this chip is a MOS 6502 die in a 28 pin DIP package. The reduction of pins, 40 to 28, means that it lacks A13-A15 address lines (which limits it`s address space to 8K) an unfortunatelly also /INT and /NMI.
+Besides interrupt handling, all other aspects of 6502 programming and interfacing can be learn with this board.
+
+For I/O and RAM we are using a [6532 RIOT](https://www.youtube.com/watch?v=Fo5bwoBWVhU&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=17) also made famouns by the [Atari 2600](https://en.wikipedia.org/wiki/Atari_2600). 
+The RIOT provides 128 bytes of static RAM (yes those are BYTES), two bidirectional 8-bit digital input/output ports, and a programmable interval timer. Since the 6507 does not have INT pins the timer. Then we use a standard EEPROM as ROM.
+
+### 65uino Memory Map
+
+| Address | Description |
+| ----------- | ----------- |
+| $0000-007f | RAM |
+| $0080-00ff | RIOT Registers |
+| $1000-$1FFF | ROM |
+
+Given that the 6507 can only access addresses using the low 13 bits of an address (8kb), bits 14, 15, and 16 are totally ignored. This means that the first 8Kb memory segment is mirrored 8 times in the 6502 full addresable space.
+
+Because of this and the fact that the 6502 reset vectors live at $FFFA to $FFFF. For consistency with other architectures is better to picture the ROM in the last mirror image at $F000-$FFFF.
+
+## Writing your code
+
+The cc65 environment is already configured for you in the project. The `memmap.cfg` file has the memory map and defines 4 segments:
+
+- ZEROPAGE: Self explanatory, this is the RIOT RAM and registers starting at $0000 and 256 bytes in size
+- USERLAND: Reserved for your code starts at $000F and 91 bytes in size
+- RODATA: This is the 4kb ROM segment starting at $F000
+- VECTORS6502: This starts at $FFFA (ROM) and is used for defining the reset vectors
+
+You have to use the ***USERLAND*** segment to write yur code. You have 91 bytes of RAM for your code that can be loaded through the serial bootloader.
+This segments is compiled and linked to `build/userland.bin`.
