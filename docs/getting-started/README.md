@@ -61,11 +61,55 @@ In the 65uino the BIOS implements:
 
 The BIOS source is in `abn6507rom.s` and the font data lives in `95char5x7font.s`.
 
-The serial port is TTL level so you will need to use an TTL to USB (FTDI) [board](https://www.amazon.com/gp/product/B07WX2DSVB/) or cable to connect the 65uino to your computer. 
-
+The serial port is TTL level so you will need to use an TTL to USB FTDI [board](https://www.amazon.com/gp/product/B07WX2DSVB/) or cable to connect the 65uino to your computer.
+The BIOS is set for the serial to work at 4800bps, 8 bits, no parity, 1 stop bit with XON flow control. You can test it form the command prompt with `stty` or with a terminal program like [CoolTerm](https://freeware.the-meiers.org/) which works for all platfroms.
 
 ### Build for Mac/Linux
-The `assemble.sh` file contains all the steps needed to build and burn the BIOS on Mac or Linux. You will need to check and see if the paths match your installation and change them accordinly. I recommed you add your cc65 \bin folder to your path and then just delete the path from the script.
 
-Walkthrough of the assemble.sh build script
+The `assemble.sh` bash script contains all the steps needed to build and burn the BIOS on Mac or Linux. You will need to check and see if the paths match your installation and change them accordinly. I recommed you add your cc65 \bin folder to your path and then just delete the path from the script.
 
+Below is a quick walkthrough of the `assemble.sh` build script.
+
+```bash
+#!/bin/bash
+/opt/homebrew/bin/ca65 -vvv --cpu 6502 -l  build/listing.txt -o  build/abn6507rom.o abn6507rom.s
+/opt/homebrew/bin/ld65 -o build/abn6507rom.bin -C memmap.cfg "./build/abn6507rom.o" #"./build/crom.o" "./build/userland.o"
+#/opt/homebrew/bin/minipro -s -p "W27C512@DIP28" -w  build/abn6507rom.bin
+SERIAL=0
+baudrate=4800
+if [[ $SERIAL -eq 0 ]]; then
+minipro -s -p "SST39SF010A" -w build/abn6507rom.bin
+else
+serial="/dev/cu.usbs*" #macos
+eval serial=$serial
+cat -v < $serial & #Keep serial alive
+pid=$! #Save for later
+stty -f $serial $baudrate
+echo -n $'\x01' > $serial #Send SOH to get 65uino ready to receive
+sleep 0.1 #Wait for timeout
+cat build/userland.bin > $serial
+kill $pid #Terminate serial
+wait $pid 2>/dev/null #silence!
+fi
+```
+
+Let's break this down.
+
+```bash
+/opt/homebrew/bin/ca65 -vvv --cpu 6502 -l  build/listing.txt -o  build/abn6507rom.o abn6507rom.s
+/opt/homebrew/bin/ld65 -o build/abn6507rom.bin -C memmap.cfg "./build/abn6507rom.o"
+```
+
+The scripts assumes cc65 is located in `/opt/homebrew/bin/`, the first 2 lines run the *ca65* assembler and then the *ld65* linker. You should not need to change anything else in this lines.
+If you want to just build the rom files, you can run these 2 commands directly. This generates 2 separate files:
+
+- `abn6507` > this is the BIOS files to burn in the EEPROM
+- `userland.bin` > this is your own program to load though the bootloader
+
+The next important piece comes in this lines
+
+```bash
+minipro -s -p "SST39SF010A" -w build/abn6507rom.bin
+```
+
+This will use `minipro` to burn the BIOS ROM. It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your PATH. If you are using the more common 27C512 EEPROM change th e`-p` parameter to *"W27C512@DIP28"*.
