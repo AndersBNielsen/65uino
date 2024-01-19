@@ -50,12 +50,22 @@ To burn the rom you will need an EEPROM programmer. The programmer of choice is 
 The software of choice here will be [minipro by David Griffith](https://gitlab.com/DavidGriffith/minipro/) if you are on Linux or Mac. This is a great open source program for controlling the TL866xx series of chip programmers.
 If you use Windows you will have to use the native (GUI) Xgecu software that came with you TL866xx. Xgecu does not have a command line option so you will have to burn manually.
 
-### Build the 65uino BIOS
+### The 65uino BIOS
 
 In the 65uino the BIOS implements:
 
 - [I2C bit banged](https://www.youtube.com/watch?v=i7q0P9-wszM&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=12&t=13s) in Port B of the RIOT. SCL is in pin A5 and SDA in pin A4
-- RS232 TTL Serial with XON/OFF flow control, bitbanged in Port A of the RIOT. RX is pin D0 and TX pin D1.
+- RS232 TTL Serial with XON/OFF flow control, bitbanged in Port A of the RIOT. RX is pin D0 and TX pin D1. 
 - [Libraries for driving a SSD1306 0.98 in OLED](https://www.youtube.com/watch?v=x6xsTXY7OtI&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=11&t=744s) with an example implementation that will act as a serial echo console
 - [A serial bootloader](https://www.youtube.com/watch?v=nOmQd3y3pDw&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=10) to load your own binaries without flashing the ROM.
+
+The BIOS source is in `abn6507rom.s` and the font data lives in `95char5x7font.s`.
+
+The serial port is TTL level so you will need to use an TTL to USB (FTDI) [board](https://www.amazon.com/gp/product/B07WX2DSVB/) or cable to connect the 65uino to your computer. 
+
+
+### Build for Mac/Linux
+The `assemble.sh` file contains all the steps needed to build and burn the BIOS on Mac or Linux. You will need to check and see if the paths match your installation and change them accordinly. I recommed you add your cc65 \bin folder to your path and then just delete the path from the script.
+
+Walkthrough of the assemble.sh build script
 
