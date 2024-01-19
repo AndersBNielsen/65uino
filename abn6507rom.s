@@ -5,6 +5,9 @@
 .feature org_per_seg
 .feature c_comments
 
+BAUDRATE=9600 ; Max 9600
+BAUDSTEP=9600 / BAUDRATE - 1; Must be an integer
+
 I2CRAM = $00
 
 I2CADDR = I2CRAM
@@ -58,9 +61,30 @@ WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 .segment "USERLAND"
 userland:
 
-lda #'@'
-jsr ssd1306_sendchar
+lda DDRB
+jsr printbyte
+lda DRB
+and #$FB
+sta DRB
+jsr printbyte
 
+jsr tenthssdelay
+
+lda DRB
+ora #4
+sta DRB
+
+jsr printbyte
+
+jmp main
+
+tenthssdelay:
+lda #102
+sta WTD1KDI ; 98 = 100352 ~= tenth of a second
+wait10ths:
+lda READTDI
+bne wait10ths ; Loop until timer runs out
+rts
 
 /*
 lda #0
@@ -109,7 +133,7 @@ password:
 .byte $0A
 .byte $0
 
-*/
+
 
 w4serial:
 lda DRA ; Check serial 3c
@@ -119,6 +143,7 @@ jsr serial_rx ; Get character
 jsr printbyte
 jmp w4serial
 
+*/
 
 halt:
 lda #0
@@ -232,8 +257,10 @@ sty rxcnt
 lda DRA ;
 ora #4 ; CTS high
 sta DRA
+/*
 lda #$13 ; XOFF
 jsr serial_tx ; Inform sender we're out of buffer space
+*/
 lda #<overflow
 sta stringp
 lda #>overflow
@@ -288,8 +315,10 @@ txt:
 lda DRA ;
 ora #4 ; CTS high
 sta DRA
+/*
 lda #$13 ; XOFF
 jsr serial_tx ; Inform sender to chill while we write stuff to screen
+*/
 
 tx:
 ldy txcnt
@@ -314,8 +343,10 @@ txdone:
 lda DRA ;
 and #$fb ; CTS low
 sta DRA
+/*
 lda #$11 ; XON
 jsr serial_tx
+*/
 gowait:
 jmp wait
 
@@ -769,7 +800,7 @@ rts
 ;We should call this ASAP when RX pin goes low - let's assume it just happened (13 cycles ago)
 serial_rx:
 ;Minimum 13 cycles before we get here
-lda #34 ; 1.5 period-ish ; 2 cycles - 15 for 9600 baud, 34 for 4800
+lda #(15+19*BAUDSTEP) ; 1.5 period-ish ; 2 cycles - 15 for 9600 baud, 34 for 4800
 jsr delay_short ; 140c
 ldx #8 ; 2 cycles
 ;149 cycles to get here
@@ -777,7 +808,7 @@ serial_rx_loop: ;103 cycles
 lda DRA ; Read RX bit 0 ; 3 cycles
 lsr ; Shift received bit into carry - in many cases might be safe to just lsr DRA ; 2 cycles
 ror inb ; Rotate into MSB 5 cycles
-lda #22 ; 2 cycles ;9 for 9600 baud, 22 for 4800 baud (add 104us == 104 / 8 = 13)
+lda #(9+13*BAUDSTEP) ; 2 cycles ;9 for 9600 baud, 22 for 4800 baud (add 104us == 104 / 8 = 13)
 jsr delay_short ; Delay until middle of next bit - overhead; 84 cycles
 nop ; 2c
 dex ; 2c
@@ -793,7 +824,7 @@ sta outb
 lda #$fd ; Inverse bit 1
 and DRA
 sta DRA ; Start bit
-lda #21 ; 2c ; 9600 = 8, 4800 = 21
+lda #(8+13*BAUDSTEP) ; 2c ; 9600 = 8, 4800 = 21
 jsr delay_short ; 20 + (8-1)*8 = 76c ; Start bit total 104 cycles - 104 cycles measured
 nop ; 2c
 nop ; 2c
@@ -810,7 +841,7 @@ and #$fd ; 2c
 bitset:
 sta DRA ; 3c
 ; Delay one period - overhead ; 101c total ; 103c measured
-lda #21 ; 2c ; 9600 8, 4800 21
+lda #(8+13*BAUDSTEP) ; 2c ; 9600 8, 4800 21
 jsr delay_short ; 20 + (8-1)*8 = 76c
 dex ; 2c
 bne serial_tx_loop ; 3c
@@ -821,7 +852,7 @@ nop; 2c
 lda DRA ;3c
 ora #2 ; 2c
 sta DRA ; Stop bit 3c
-lda #21 ; 2c ; 9600 8, 4800 21
+lda #(8+13*BAUDSTEP) ; 2c ; 9600 8, 4800 21
 jsr delay_short
 rts
 
