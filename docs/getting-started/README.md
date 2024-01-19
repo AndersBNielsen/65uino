@@ -1,5 +1,18 @@
 # Getting Started with 65uino
 
+<!-- TOC start  -->
+
+- [Building the Board](#building-the-board)
+- [The Software](#the-software)
+   * [Devlelopment Toolchain](#devlelopment-toolchain)
+   * [The 65uino BIOS](#the-65uino-bios)
+   * [Build your ROMs](#build-your-roms)
+- [65uino Architecture](#65uino-architecture)
+   * [65uino Memory Map](#65uino-memory-map)
+- [Writing your code](#writing-your-code)
+
+<!-- TOC end -->
+
 Welcome to 65uino! 
 Before you start getting wrapped into writing 6502 assembly to conquer the world, you'll need to get soldering, set up the board and burn some software in the EEPROM.
 
