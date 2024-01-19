@@ -2,6 +2,7 @@
 
 <!-- TOC start  -->
 
+- [Welcome to 65uino! ](#welcome-to-65uino)
 - [Building the Board](#building-the-board)
 - [The Software](#the-software)
    * [Devlelopment Toolchain](#devlelopment-toolchain)
@@ -13,7 +14,9 @@
 
 <!-- TOC end -->
 
-Welcome to 65uino! 
+<!-- TOC --><a name="welcome-to-65uino"></a>
+## Welcome to 65uino!
+
 Before you start getting wrapped into writing 6502 assembly to conquer the world, you'll need to get soldering, set up the board and burn some software in the EEPROM.
 
 If you’re new to the 65uino, you might want to [check out the videos](https://www.youtube.com/playlist?list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv) first where you will see how the 65uino came to be, and how it works. You'll find more details in the [HackaDay Project page](https://hackaday.io/project/190260-65uino)
