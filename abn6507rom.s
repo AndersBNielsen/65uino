@@ -1,4 +1,4 @@
-; Written by Anders Nielsen, 2023
+; Written by Anders Nielsen, 2023-2024
 ; License: https://creativecommons.org/licenses/by-nc/4.0/legalcode
 
 .feature string_escapes ; Allow c-style string escapes when using ca65
@@ -8,33 +8,7 @@
 BAUDRATE=9600 ; Max 9600
 BAUDSTEP=9600 / BAUDRATE - 1; Must be an integer
 
-I2CRAM = $00
-
-I2CADDR = I2CRAM
-inb     = I2CRAM +1
-outb    = I2CRAM +2
-xtmp    = I2CRAM +3
-stringp = I2CRAM +4 ; (and +5)
-
-timer2  = stringp ; We're not going to be printing strings while waiting for timer2
-;Stringp +1 free for temp.
-mode  = stringp +2
-rxcnt   = stringp + 3
-txcnt   = rxcnt +1
-runpnt  = txcnt +1
-cursor    = runpnt +2
-scroll  = runpnt +3
-tflags  = runpnt +4
-;serialbuf = runpnt +5 ; Address #14 / 0x0E
-serialbuf = $0f
-
-SCL     = 1 ; DRB0 bitmask
-SCL_INV = $FE ; Inverted for easy clear bit
-SDA     = 2 ; DRB1 bitmask
-SDA_INV = $FD
-
 RIOT = $80
-
 DRA     = RIOT + $00 ;DRA ('A' side data register)
 DDRA    = RIOT + $01 ;DDRA ('A' side data direction register)
 DRB     = RIOT + $02 ;DRB ('B' side data register)
@@ -58,83 +32,123 @@ WTD8EI  = RIOT + $1D ;Write timer (divide by 8, enable interrupt)
 WTD64EI = RIOT + $1E ;Write timer (divide by 64, enable interrupt)
 WTD1KEI = RIOT + $1F ;Write timer (divide by 1024, enable interrupt)
 
-.segment "USERLAND"
+; Bitmasks for setting and clearing bit 1 of DDRA to input and output
+BITMASK_SET_BIT1    = $02   ; Binary: 0000 0010
+BITMASK_CLEAR_BIT1  = $FD   ; Binary: 1111 1101
+
+; Bitmasks for setting and clearing signals in Data Register B (DRB)
+BITMASK_SET_RLSBLE   = $04
+BITMASK_CLEAR_RLSBLE = $FB
+
+BITMASK_SET_RMSBLE    = $08
+BITMASK_CLEAR_RMSBLE  = $F7
+
+BITMASK_SET_ROM_OE    = $10
+BITMASK_CLEAR_ROM_OE  = $EF
+
+BITMASK_SET_CTRL_LE   = $20
+BITMASK_CLEAR_CTRL_LE = $DF
+
+BITMASK_SET_ROM_CE    = $80
+BITMASK_CLEAR_ROM_CE  = $7F
+
+; Bitmasks for additional signals
+BITMASK_SET_VPE_TO_VPP   = %00000001
+BITMASK_SET_A9_VPP_ENABLE = %00000010
+BITMASK_SET_VPE_ENABLE    = %00000100
+BITMASK_SET_REG_DISABLE = %10000000
+
+; Bitmasks to clear corresponding bits
+BITMASK_CLEAR_VPE_TO_VPP   = %11111110
+BITMASK_CLEAR_A9_VPP_ENABLE = %11111101
+BITMASK_CLEAR_VPE_ENABLE    = %11111011
+BITMASK_CLEAR_REG_DISABLE     = %01111111
+
+.include "macros.s"
+;includes the "print" macro for printing strings
+
+.segment "ZEROPAGE"
+I2CADDR:  .res 1 ; Reserve 1 byte for I2CADDR
+inb:      .res 1 ; Reserve 1 byte for inb - Used for Serial and I2C
+outb:     .res 1 ; Reserve 1 byte for outb - Used for Serial and I2C
+xtmp:     .res 1 ; Reserve 1 byte for xtmp
+stringp:  .res 2 ; Reserve 2 bytes for stringp (stringp + 1)
+;Stringp +1 free for temp.
+mode:     .res 1 ; Reserve 1 byte for mode
+rxcnt:    .res 1 ; Reserve 1 byte for rxcnt
+txcnt:    .res 1 ; Reserve 1 byte for txcnt
+runpnt:   .res 2 ; Reserve 2 bytes for runpnt
+cursor:   .res 1 ; Reserve 1 byte for cursor ; SSD1306
+scroll:   .res 1 ; Reserve 1 byte for scroll ; SSD1306
+tflags:   .res 1 ; Reserve 1 byte for tflags ; SSD1306
+serialbuf: .res 0 ; Reserve 1 byte for serialbuf - Used for text display and userland program storage
+
+timer2  = stringp ; We're not going to be printing strings while waiting for timer2
+
+romaddr = runpnt
+
+.SEGMENT "USERLAND"
+.org $0e ; Just to make listing.txt match
 userland:
 
-lda DDRB
-jsr printbyte
-lda DRB
-and #$FB
-sta DRB
-jsr printbyte
+lda #%01000000 ; Indicator cloning started
+jsr latchctrl
 
-jsr tenthssdelay
+jsr identifyrom ; Returns ROM ID in romaddr(+1)
+lda romaddr
+cmp #$DA ; Winbond
+bne notwb
+lda romaddr+1
+cmp #8 ; 08 = W27C512
+bne notwb
 
-lda DRB
-ora #4
-sta DRB
-
-jsr printbyte
-
-jmp main
-
-tenthssdelay:
-lda #102
-sta WTD1KDI ; 98 = 100352 ~= tenth of a second
-wait10ths:
-lda READTDI
-bne wait10ths ; Loop until timer runs out
-rts
+wipe:
+print erasing ; Print macro in macros.s
+jsr erasew27c512 ; First we erase it
 
 /*
-lda #0
-sta mode
+checkblank:
+print verifying
+jsr blankcheck ; Verify erasure
+cpx #$ff ; Check byte value 
+bne notblank
+print romblankstr
+*/
 
-checkrightbutton:
-bit DRA
-bpl rightbutton
-bvc leftbutton
-bvs checkrightbutton ; BRA
+/*
+lda #$FA
+ldy #10
+ldx #0
+jsr writerom
+*/
 
-rightbutton:
-lda #<username
-sta stringp
-lda #>username
-sta stringp+1
-jsr serial_wstring
+print cloning
+jsr cloneROM ; Write 65uino ROM
 
-checkleftbutton:
-bit DRA
-bvc leftbutton
-bvs checkleftbutton ; Loop waiting for button
+print verifying
+jsr clonecheck ; Verify
 
-leftbutton:
-lda #<command
-sta stringp
-lda #>command
-sta stringp+1
-jsr serial_wstring
-lda #0
-sta mode
-jmp main
+lda #%01000000
+jsr latchctrl
 
-command:
-;.byte "sudo poweroff"
-.byte $0A ; Enter key
-.byte $0 ; String end
+notblank:
 
-username:
-.byte "pi"
-.byte $0A ; Enter key
-.byte $0 ; String end
+;print romnotblankstr
+lda #'$'
+jsr ssd1306_sendchar
 
-password:
-;.byte "6502forever"
-.byte $0A
-.byte $0
+lda romaddr+1
+jsr printbyte ; Print address of first mismatch ($1000 if OK)
+lda romaddr
+jsr printbyte
+print bytesverifiedstr
+jmp halt
 
+notwb:
+;print unrecognized
+;print foundwithid 
 
-
+/*
 w4serial:
 lda DRA ; Check serial 3c
 and #$01 ; 2c
@@ -146,12 +160,18 @@ jmp w4serial
 */
 
 halt:
-lda #0
-sta mode
-jmp welcomemsg ; Get ready for new code
+
+ldy #0
+lda #$02 ; Bit 1 is serial TX (Output)
+sta DDRA
+sty mode
+sty txcnt
+sty rxcnt
+jmp main ; Get ready for new code
+
 
 .segment "RODATA"
-.org $F000 ; Not strictly needed with CA65 but shows correct address in listing.txt
+.org $1000 ; Not strictly needed with CA65 but shows correct address in listing.txt
   nmi:
   irq:
   reset:
@@ -167,13 +187,17 @@ jmp welcomemsg ; Get ready for new code
           bne clearzp
           sta $00,x
 
-          lda #$BC ; Bit 0, 1 are SCL and SDA, bit 6 is input button.
+          JSR latchctrl  ; Latch 0 into control register 
+
+          lda #%01010000 ; Init DRB bit 4 and 6 to 1, rest to 0.
+          sta DRB
+          lda #%10111100 ; Bit 0, 1 are SCL and SDA, bit 6 is input button.
           sta DDRB ; Set B register direction to #%10111100
           ; Reset state of DDRA is $00.
 
           lda #%11111001 ; Rest of port is input
           sta DRA
-          lda #$06 ; Bit 1 is serial TX (Output) & 2 (CTS)
+          lda #$02 ; Bit 1 is serial TX (Output)
           sta DDRA
 
 jsr qsdelay
@@ -187,20 +211,13 @@ bit DRB
 bvs welcomemsg
 lda #1
 sta mode
-lda #<ready
-sta stringp
-lda #>ready
-sta stringp+1
-jsr ssd1306_wstring
+print ready
+
 clc
-bcc main
+bcc main ; BRA
 
 welcomemsg:
-lda #<welcome
-sta stringp
-lda #>welcome
-sta stringp+1
-jsr ssd1306_wstring
+print welcome
 
 main:
 bit DRB
@@ -228,8 +245,10 @@ gonoserial:
 jmp noserial
 wait:
 lda DRA ; Check serial 3c
+/*
 and #%11111011 ; CTS low
 sta DRA
+*/
 and #$01 ; 2c
 bne gonoserial ; 2c
 tay ; A already 0
@@ -248,16 +267,17 @@ sta timer2 ; Reset timer
 gorx:
 jsr serial_rx ; 6c
 sta serialbuf, y
-cpy #128-25 ; Leaves 9 bytes for stack
+cpy #128-(<userland)-9 ; Leaves 9 bytes for stack
 beq rx_err
 iny
 bne rx ; BRA (Y never 0)
 rx_err:
 sty rxcnt
+/*
 lda DRA ;
 ora #4 ; CTS high
 sta DRA
-/*
+
 lda #$13 ; XOFF
 jsr serial_tx ; Inform sender we're out of buffer space
 */
@@ -294,8 +314,6 @@ jsr ssd1306_wstring
 waittorun:
 jsr qsdelay
 jsr qsdelay
-jsr qsdelay
-jsr qsdelay
 jsr ssd1306_clear
 lda #0
 sta cursor
@@ -312,10 +330,11 @@ jsr ssd1306_setcolumn
 jmp userland
 
 txt:
+/*
 lda DRA ;
 ora #4 ; CTS high
 sta DRA
-/*
+
 lda #$13 ; XOFF
 jsr serial_tx ; Inform sender to chill while we write stuff to screen
 */
@@ -340,435 +359,466 @@ lda READTDI
 bne gowait ; Loop until timer runs out
 jmp main ; loop
 txdone:
+/*
 lda DRA ;
 and #$fb ; CTS low
 sta DRA
-/*
+
 lda #$11 ; XON
 jsr serial_tx
 */
 gowait:
 jmp wait
 
-ready:
-.asciiz "Ready to load code... "
+.include "i2c.s" ; i2c rutines specifically for the 65uino. Provides i2c_start, i2cbyteout, i2cbytein, i2c_stop - expects a few 
+.include "ssd1306.s" ; SSD1306 routines specifically for the 65uino. Provides ssd1306_init, ssd1306_clear, ssd1306_sendchar, ssd1306_setline, ssd1306_cmd, ssd1306_wstring, printbyte
 
-loading:
-.asciiz "Loading... "
-
-overflow:
-.asciiz "OF!"
-
-loaded:
-.asciiz "Loaded "
-
-bytes:
-.asciiz " bytes of data. Running code in 1 second."
+ready:.asciiz "Ready to load code... "
+loading:.asciiz "Loading... "
+overflow:.asciiz "OF!"
+loaded: .asciiz "Loaded "
+bytes: .asciiz " bytes of data. Running code in 1 second."
 
 welcome:
 .byte "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
 .byte $00
 
-;Routines
+erasing:.asciiz "\nErasing...\n"
+m27c512rom:.asciiz "M27C512"
+w27c512rom:.asciiz "W27C512" ; Continues
+foundwithid:.asciiz " found with ID: "
+unrecognized:.asciiz "Unrecognized ROM"
+blankcheckstr:.asciiz "Performing blank check... "
+romblankstr: .asciiz "ROM blank. \n"
+cloning: .asciiz "Cloning internal ROM.. "
+verifying: .asciiz "Verifying.. \n"
+romnotblankstr: .asciiz "First mismatch found at addr: $"
+bytesverifiedstr: .asciiz " bytes verified OK"
 
-i2c_start:
-  lda I2CADDR
-  rol ; Shift in carry
-  sta outb ; Save addr + r/w bit
+identifyrom:
+jsr getromid
+stx romaddr ; tmp
+sty romaddr+1
 
-  lda #SCL_INV
-  and DDRB
-  sta DDRB ; Start with SCL as input HIGH - that way we can inc/dec from here
+cpx #$DA ; Winbond
+beq winbond
+cpx #$20 ; ST
+beq st
+bne fail
 
-  lda #SDA ; Ensure SDA is output low before SCL is LOW
-  ora DDRB
-  sta DDRB
-  lda #SDA_INV
-  and DRB
-  sta DRB
+winbond:
+cpy #$08
+bne fail
+print w27c512rom
+jmp nofail
 
-  lda #SCL_INV ; Ensure SCL is low when it turns to output
-  and DRB
-  sta DRB
-  inc DDRB ; Set to output by incrementing the direction register == OUT, LOW
+st:
+cpy #$3D
+bne fail
+print m27c512rom
+jmp nofail
 
-  ; Fall through to send address + RW bit
-  ; After a start condition we always send the address byte so we don't need to RTS+JSR again here
-
-i2cbyteout: ; Clears outb
-  lda #SDA_INV ; In case this is a data byte we set SDA LOW
-  and DRB
-  sta DRB
-  ldx #8
-  bne first ; BRA - skip INC since first time already out, low
-I2Cbyteloop:
-  inc DDRB ; SCL out, low
-first:
-  asl outb ; MSB to carry
-  bcc seti2cbit0 ; If bit was low
-  lda DDRB       ; else set it high
-  and #SDA_INV
-  sta DDRB
-  bcs wasone ; BRA doesn't exist on 6507
-seti2cbit0:
-  lda DDRB
-  ora #SDA
-  sta DDRB
-  wasone:
-  dec DDRB
-  dex
-  bne I2Cbyteloop
-
-  inc DDRB
-
-  lda DDRB ; Set SDA to INPUT (HIGH)
-  and #SDA_INV
-  sta DDRB
-
-  dec DDRB ; Clock high
-  lda DRB  ; Check ACK bit
-  sec
-  and #SDA
-  bne nack
-  clc ; Clear carry on ACK
-  nack:
-  inc DDRB ; SCL low
-  rts
-
-i2cbytein:
-  ; Assume SCL is low from address byte
-  lda DDRB  ; SDA, input
-  and #SDA_INV
-  sta DDRB
-  lda #0
-  sta inb
-  ldx #8
-i2cbyteinloop:
-  clc
-  dec DDRB ; SCL HIGH
-  lda DRB ; Let's read after SCL goes high
-  and #SDA
-  beq got0
-  sec
-  got0:
-  rol inb ; Shift bit into the input byte
-  inc DDRB ; SCL LOW
-  dex
-  bne i2cbyteinloop
-
-  lda DDRB ; Send NACK == SDA high (only single bytes for now)
-  and #SDA_INV
-  sta DDRB
-  dec DDRB ; SCL HIGH
-  inc DDRB ; SCL LOW
+fail:
+print unrecognized
+nofail:
+print foundwithid
+lda romaddr
+jsr printbyte
+lda romaddr+1
+jsr printbyte
 rts
 
-i2c_stop:
-  lda DDRB ; SDA low
-  ora #SDA
-  sta DDRB
-  dec DDRB ; SCL HIGH
-  lda DDRB ; Set SDA high after SCL == Stop condition
-  and #SDA_INV
-  sta DDRB
-  rts
-
-ssd1306_init:
-  clc
-  jsr i2c_start
-  ldy #0
-  initloop:
-  lda ssd1306_inittab, y
-  cmp #$ff
-  beq init_done
-  sta outb
-  jsr i2cbyteout
-  iny
-  bne initloop ; BRA
-  init_done:
-  jsr i2c_stop
-  rts
-
-  ssd1306_clear:
-  lda #0
-  sta cursor
-  sta tflags ; Reset scroll
-  jsr ssd1306_setline
-  lda #0
-  jsr ssd1306_setcolumn
-  clc ; Write
-  jsr i2c_start
-  lda #$40 ; Co bit 0, D/C# 1
-  sta outb
-  jsr i2cbyteout
-  ;outb is already 0
-  ldy #0
-  clearcolumn:
-  jsr i2cbyteout
-  jsr i2cbyteout
-  jsr i2cbyteout
-  jsr i2cbyteout
-  dey
-  bne clearcolumn ; Inner loop
-  jsr i2c_stop
-
-  lda #$d3 ; Clear scroll
-  jsr ssd1306_cmd
-  lda #0
-  sta scroll
-  sta outb
-  jsr i2cbyteout
-  jsr i2c_stop
-  return:
-  rts
-
-gonewline:
-jmp newline
-
-ssd1306_sendchar:
-cmp #$0D ; Newline
-beq gonewline
-cmp #$0A ; CR - also newline
-beq gonewline
-cmp #$08 ; Backspace
-beq backspace
-cmp #$7f ; Delete - also backspace
-beq backspace
-cmp #$0C ; Form feed, CTRL+L on your keyboard.
-bne startprint
-;jsr ssd1306_clear
-rts
-startprint:
-tay ; Save out byte
-clc ; Write
-jsr i2c_start
-lda #$40 ; Co bit 0, D/C 1
-sta outb
-jsr i2cbyteout
-;outb already 0
-jsr i2cbyteout ; Send 0
-lda fontc1-$20, y ; Get font column pixels
-sta outb
-jsr i2cbyteout
-lda fontc2-$20, y ; Get font column pixels
-sta outb
-jsr i2cbyteout
-lda fontc3-$20, y ; Get font column pixels
-sta outb
-jsr i2cbyteout
-lda fontc4-$20, y ; Get font column pixels
-sta outb
-jsr i2cbyteout
-lda fontc5-$20, y ; Get font column pixels
-sta outb
-jsr i2cbyteout
-jsr i2cbyteout ; Send 0
-jsr i2cbyteout ; Send 0
-jsr i2c_stop
-;tya
-;jsr serial_tx
-lda cursor
-clc
-adc #1
-and #127
-sta cursor
-
-lda scroll
-asl ; Convert scroll offset to cursor count - units. 8 << 2 == 16 == Second line
-clc ; Need this?
-adc cursor
-and #$7F ; Throw away only the top bit since scroll offset might have it set
-
-bne l451 ; Again - not taking scroll offset into account..
-lda #1 ; We reached wraparound so we start scrolling
-sta tflags ; Terminal flags
-l451:
-lda cursor
-and #$0F ; Check if we started a new line and need to reset cursor position.
-bne nonewline
-jsr ssd1306_setcolumn
-lda tflags ; Check scroll flag
-beq nonewline
-jsr ssd1306_scrolldown
-nonewline:
-rts
-
-backspace:
-;jsr serial_tx ; Echo back the backspace/del
-lda cursor
-bne noroll ; No roll back to 127
-lda #128
-noroll:
-sec
-sbc #1
-sta cursor ; Save
-and #$0F ; Discard page
-cmp #$0F ; Wrapped back a line
-bne nocolwrap
+;Returns manufacturer ID in X and device ID in Y
+getromid:
+lda #BITMASK_SET_REG_DISABLE
+jsr latchctrl
+lda #BITMASK_SET_VPE_TO_VPP | BITMASK_SET_REG_DISABLE | BITMASK_SET_A9_VPP_ENABLE
+jsr latchctrl
+lda #$50
+jsr delay_long ; Stabilize VPP
 ldy #0
-sty tflags ; Scroll off
-nocolwrap:
-jsr ssd1306_setcolumn ; Set new column
-lda cursor
-lsr
-lsr
-lsr
-lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
-jsr ssd1306_setline
-
-clc ; Write
-jsr i2c_start
-lda #$40 ; Co bit 0, D/C 1
-sta outb
-ldy #9
-send0:
-jsr i2cbyteout ; cmd byte + 8 x Send 0
-dey
-bne send0
-jsr i2c_stop
-
-lda cursor
-and #$0F ; Discard page
-jsr ssd1306_setcolumn ; Set new column
-lda cursor
-lsr
-lsr
-lsr
-lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
-jsr ssd1306_setline
-zeropos:
+sty DRA
+lda DRB
+ora #BITMASK_SET_RLSBLE | BITMASK_SET_RMSBLE
+sta DRB
+and #BITMASK_CLEAR_RMSBLE & BITMASK_CLEAR_RLSBLE & BITMASK_CLEAR_ROM_CE
+sta DRB
+sty DDRA ; DRA input
+and #BITMASK_CLEAR_ROM_OE
+sta DRB
+ldx DRA
+ora #BITMASK_SET_ROM_OE
+sta DRB
+ldy #$ff
+sty DDRA
+ldy #$01
+sty DRA
+ora #BITMASK_SET_RLSBLE
+sta DRB
+and #BITMASK_CLEAR_RLSBLE
+sta DRB
+ldy #0
+sty DDRA
+and #BITMASK_CLEAR_ROM_OE
+sta DRB
+ldy DRA
+ora #BITMASK_SET_ROM_OE | BITMASK_SET_ROM_CE
+sta DRB
+lda #BITMASK_SET_REG_DISABLE
+jsr latchctrl
 rts
 
-newline:
-;jsr serial_tx ; Echo the newline
-lda cursor
-adc #16
-and #$70 ; Ensure range - ignore character position
-sta cursor
-lda scroll
-asl ; Convert scroll offset to cursor count - units. 8 << 2 == 16 == Second line
-clc ; Need this?
-adc cursor
-and #$70 ; Throw away top bit since scroll offset might have it set
-bne nowrap ; Now factoring in scroll offset!
-ldy #1
-sty tflags
-nowrap:
-lda cursor
-lsr
-lsr
-lsr
-lsr ; Shift bits to get current line (16 chars per line == first four bits = character = next three bits line)
-jsr ssd1306_setline
+clonecheck:
+;Init
 lda #0
-jsr ssd1306_setcolumn ; CR
-lda tflags
-beq notscrolling
-jsr ssd1306_scrolldown
-notscrolling:
+sta romaddr
+sta DRA
+tay
+tax
+
+lda #$10 ; ROM is mapped at $1000
+sta romaddr+1
+
+lda #$FF
+sta DDRA
+LDA DRB
+ORA #BITMASK_SET_RMSBLE | BITMASK_SET_RLSBLE ; Latch 0 into address registers
+STA DRB
+AND #BITMASK_CLEAR_RMSBLE & BITMASK_CLEAR_RLSBLE ; Clear LE and output
+STA DRB
+
+tya
+sta DDRA ; A input
+LDA DRB
+AND #BITMASK_CLEAR_ROM_CE & BITMASK_CLEAR_ROM_OE;Output ROM data
+sta DRB
+lda DRA
+cmp (romaddr),y
+bne clonecheckdone
+clc ; Let's make sure
+
+checknextaddress:
+lda DRB
+ora #BITMASK_SET_ROM_OE
+sta DRB
+iny
+bne nexta
+inx
+beq clonecheckdone
+clc ; Wonder if this is needed
+lda romaddr+1
+adc #1
+sta romaddr+1
+cmp #$20
+beq clonecheckdone
+stx DRA
+jsr latchmsb2 ; Could unwrap this but only a little bit faster
+nexta:
+sty DRA
+LDA #$FF
+sta DDRA
+; Set RLSBLE (bit 2) to latch the lower byte
+LDA DRB
+ORA #BITMASK_SET_RLSBLE
+STA DRB
+AND #BITMASK_CLEAR_RLSBLE
+STA DRB
+lda #0
+sta DDRA
+LDA DRB
+AND #BITMASK_CLEAR_ROM_OE;Output ROM data
+sta DRB
+lda DRA
+cmp (romaddr),y
+beq checknextaddress ; Bytes match, continue testing
+clonecheckdone:
+sty romaddr
+stx romaddr+1
+ldx DRA ; Return byte found in X 
+lda DRB
+ora #BITMASK_SET_ROM_OE | BITMASK_SET_ROM_CE
+sta DRB
 rts
 
-ssd1306_scrolldown:
-  lda #$d3
-  jsr ssd1306_cmd
-  lda scroll
-  adc #8 ; Doesn't care about bits 6+7
-  sta scroll
-  sta outb
-  jsr i2cbyteout
-  jsr i2c_stop
+blankcheck:
+;Init
+lda #0
+sta romaddr
+sta romaddr+1
+sta DRA
+tay
+tax
+jsr latchctrl
 
-  clc ; Write
-  jsr i2c_start
-  lda #$40 ; Co bit 0, D/C 1
-  sta outb
-  ldy #128 ; Command byte + One line/page... Writing the last column might increase the page pointer..
-  ; And the last column should always be clear anyway, so 128 instead of 129 so we don't reset to the first
-  ;column on the wrong page.
-  sendblanks:
-  jsr i2cbyteout ; Send 0
-  dey
-  bne sendblanks
-  jsr i2c_stop
-  jsr ssd1306_resetcolumn ; Column always 0 after scroll
-  rts
+lda #$FF
+sta DDRA
+LDA DRB
+ORA #BITMASK_SET_RMSBLE | BITMASK_SET_RLSBLE ; Latch 0 into address registers
+STA DRB
+AND #BITMASK_CLEAR_RMSBLE & BITMASK_CLEAR_RLSBLE ; Clear LE and output
+STA DRB
 
-  ssd1306_resetcolumn:
-  lda #$21 ; Set column command (0-127)
-  jsr ssd1306_cmd
-  jsr i2cbyteout ; outb already 0
-  lda #$7f ; 127
-  sta outb
-  jsr i2cbyteout
-  jsr i2c_stop
-  rts
+tya
+sta DDRA ; A input
+LDA DRB
+AND #BITMASK_CLEAR_ROM_CE & BITMASK_CLEAR_ROM_OE;Output ROM data
+sta DRB
+lda DRA
+eor #$ff
+bne checkdone
 
-ssd1306_setcolumn:
-asl ; 15 >> >> >> 120
-asl
-asl
-pha
-lda #$21 ; Set column command (0-127)
-jsr ssd1306_cmd
+nextaddress:
+lda DRB
+ora #BITMASK_SET_ROM_OE
+sta DRB
+inx
+bne next
+iny
+beq checkdone
+sty DRA
+jsr latchmsb2 ; Could unwrap this but only a little bit faster
+next:
+stx DRA
+LDA #$FF
+sta DDRA
+; Set RLSBLE (bit 2) to latch the lower byte
+LDA DRB
+ORA #BITMASK_SET_RLSBLE
+STA DRB
+AND #BITMASK_CLEAR_RLSBLE
+STA DRB
+lda #0
+sta DDRA
+LDA DRB
+AND #BITMASK_CLEAR_ROM_OE;Output ROM data
+sta DRB
+lda DRA
+eor #$ff
+beq nextaddress
+checkdone:
+stx romaddr
+sty romaddr+1
+ldx DRA ; Return byte found in X 
+lda DRB
+ora #BITMASK_SET_ROM_OE | BITMASK_SET_ROM_CE
+sta DRB
+rts
+
+cloneROM:
+LDA #BITMASK_SET_REG_DISABLE
+JSR latchctrl  ; Latch the updated control signals
+
+LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE | BITMASK_SET_VPE_TO_VPP
+JSR latchctrl  ; Latch the updated control signals
+
+lda #$ff
+sta DDRA
+jsr delay_short
+
+lda #0 ; Address latches to 0
+sta romaddr ; Zero LSB 
+sta DRA
+tay
+LDA DRB
+ORA #BITMASK_SET_RMSBLE
+STA DRB
+AND #BITMASK_CLEAR_RMSBLE
+STA DRB
+
+lda #$10
+
+nextpage:
+sta romaddr+1
+sec 
+sbc #$10 ; ROM is mapped offset $1000
+sta DRA
+LDA DRB
+ORA #BITMASK_SET_RMSBLE
+STA DRB
+AND #BITMASK_CLEAR_RMSBLE
+STA DRB
+pageloop:
+sty DRA ; Latch next address
+LDA DRB
+ORA #BITMASK_SET_RLSBLE
+STA DRB
+AND #BITMASK_CLEAR_RLSBLE
+STA DRB
+
+lda (romaddr),Y
+sta DRA
+lda DRB
+AND #BITMASK_CLEAR_ROM_CE
+sta DRB
+lda #11
+jsr delay_short
+lda DRB
+ORA #BITMASK_SET_ROM_CE
+sta DRB
+iny
+bne pageloop
+lda romaddr+1
+adc #0 ; C is set
+cmp #$20
+bne nextpage
+
+lda #0
+JSR latchctrl  ; Latch the updated control signals
+rts
+
+
+
+writerom: ; Expects byte to burn in A, ROM address in $XY
+; Returns: Nothing, but leaves voltages ON!(!)
+pha 
+LDA #BITMASK_SET_REG_DISABLE
+JSR latchctrl  ; Latch the updated control signals
+LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE | BITMASK_SET_VPE_TO_VPP
+JSR latchctrl  ; Latch the updated control signals
+lda #$ff
+sta DDRA
+jsr delay_long
 pla
-sta outb
-jsr i2cbyteout
-lda #$7f ; 127
-sta outb
-jsr i2cbyteout
-jsr i2c_stop
+
+writeaddress:
+;Expects byte to burn in A, ROM address in $XY, voltages set for burning
+; Returns nothing
+; Destroys X, Y, A and ctrl register.
+pha
+txa
+jsr latchmsb
+sty DRA
+jsr latchlsb2
+pla
+sta DRA
+;Falls through to writerom
+
+writerom2: ; Expects address and voltages to be set and DDRA = $FF
+lda DRB
+AND #BITMASK_CLEAR_ROM_CE
+sta DRB
+
+lda #11 
+jsr delay_short
+
+lda DRB
+ORA #BITMASK_SET_ROM_CE
+sta DRB
+
+ ; Leaves CTRL register with voltages on!
 rts
 
-;Takes line(page) in A
-ssd1306_setline:
-pha ; Save line
-lda #$22 ; Set page cmd
-jsr ssd1306_cmd
-pla ; Fetch line
-sta outb
-jsr i2cbyteout
-lda #7 ; Ensure range
-sta outb
-jsr i2cbyteout
-jsr i2c_stop
+erasew27c512: ; Assumes DDRA is $FF (output)
+lda #0
+sta DRA
+lda DRB ; Make sure CE & OE not already LOW and clear address latches
+ora #BITMASK_SET_ROM_CE|BITMASK_SET_ROM_OE | BITMASK_SET_RLSBLE | BITMASK_SET_RMSBLE
+sta DRB
+and #BITMASK_CLEAR_RLSBLE & BITMASK_CLEAR_RMSBLE ; Latch 0 
+sta DRB
+; Set CTRL_REGISTER to enable the regulator and set VPE/14V on A9
+LDA #BITMASK_SET_REG_DISABLE
+jsr latchctrl
+LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE | BITMASK_SET_A9_VPP_ENABLE
+JSR latchctrl  ; Latch the updated control signals
+lda #50
+jsr delay_long ; Stabilize VPE
+
+lda #$ff ; Set DRA to OUTPUT
+sta DDRA
+sta DRA
+
+lda DRB
+AND #BITMASK_CLEAR_ROM_CE
+sta DRB
+
+lda #106
+jsr delay_long
+
+lda DRB
+ORA #BITMASK_SET_ROM_CE
+sta DRB
+
+lda #BITMASK_SET_REG_DISABLE
+jsr latchctrl ; Disable high voltage regulator outputs - leave voltage reg ON
 rts
 
-;Takes command in A
-ssd1306_cmd:
-pha ; Save command
-lda #$3c ; SSD1306 address
-sta I2CADDR
-clc ;Write flag
-jsr i2c_start
-;A is 0 == Co = 0, D/C# = 0
-sta outb
-jsr i2cbyteout
-pla ; Fetch command
-sta outb
-jsr i2cbyteout
+;Routines
+latchctrl:
+  STA DRA            ; Store the low byte in DRA
+  ; Set DDRA to OUTPUT
+  LDA #$FF
+  sta DDRA
+latchctrl2:
+  ; Set CTRL_LE (bit 2) to latch the lower byte
+  LDA DRB
+  ORA #BITMASK_SET_CTRL_LE
+  STA DRB
+
+  ; Clear CTRL_LE (bit 2) to release the latch
+  ;LDA DRB ; Don't need to reload
+  AND #BITMASK_CLEAR_CTRL_LE
+  STA DRB
 rts
 
-serial_wstring:
-ldy #0
-txstringloop:
-lda (stringp),y
-beq sent
-jsr serial_tx
-iny
-bne txstringloop
-jmp sent ; In case of overflow
+latchlsb:
+  STA DRA            ; Store the low byte in DRA
+  ; Set DDRA to OUTPUT
+  LDA #$FF
+  sta DDRA
+  ; Set RLSBLE (bit 2) to latch the lower byte
+latchlsb2:
+  LDA DRB
+  ORA #BITMASK_SET_RLSBLE
+  STA DRB
 
-ssd1306_wstring:
-ldy #0
-stringloop:
-lda (stringp),y
-beq sent
-sty xtmp
-jsr ssd1306_sendchar
-ldy xtmp
-iny
-bne stringloop
-sent:
+  ; Clear RLSBLE (bit 2) to release the latch
+  ;LDA DRB ; Don't need to reload
+  AND #BITMASK_CLEAR_RLSBLE
+  STA DRB
+rts
+
+latchmsb:
+sta DRA
+latchmsb2:
+lda #$FF
+sta DDRA
+; Set RMSBLE (bit 3) to latch the higher byte
+LDA DRB
+ORA #BITMASK_SET_RMSBLE
+STA DRB
+
+; Clear RMSBLE (bit 3) to release the latch
+;LDA DRB ; Don't need to reload
+AND #BITMASK_CLEAR_RMSBLE
+STA DRB
+rts
+
+readrom:
+  ; Takes ROM address to read in romaddr(+1)
+  ; Returns data in Y
+  lda romaddr+1
+  sta DRA
+  jsr latchmsb2
+  LDA romaddr        ; Load the low byte of the address
+  sta DRA
+  jsr latchlsb2
+  ; Set DRA to input (all bits of DDRA = 0)
+  LDY #$00
+  STY DDRA
+
+  ; Set ROM_CE (bit 7) and ROM_OE (bit 4) to enable the ROM chip
+  ;LDA DRB ; Don't need to reload
+  AND #BITMASK_CLEAR_ROM_CE & BITMASK_CLEAR_ROM_OE
+  STA DRB
+
+  ; Load the byte from the ROM into the accumulator
+  LDY DRA            ; Assuming the ROM is connected to DRA
+
+  ; Set ROM_CE (bit 7) and ROM_OE (bit 4) to disable the ROM chip
+  LDA DRB
+  ORA #BITMASK_SET_ROM_CE | BITMASK_SET_ROM_OE
+  STA DRB
 rts
 
 qsdelay:
@@ -794,6 +844,13 @@ shortwait:
 nop; Sample every 8 cycles instead of every 6
 lda READTDI
 bne shortwait
+rts
+
+delay_long:
+sta WTD1KDI
+wait1k:
+lda READTDI
+bne wait1k ; Loop until timer runs out
 rts
 
 ;Returns byte in A - assumes 9600 baud = ~104us/bit, 1 cycle = 1us (1 MHz)
@@ -856,71 +913,43 @@ lda #(8+13*BAUDSTEP) ; 2c ; 9600 8, 4800 21
 jsr delay_short
 rts
 
-printbyte:
-    pha ; Save A
-    jsr bytetoa
-    pha
-    lda xtmp
-    jsr ssd1306_sendchar
-    pla
-    jsr ssd1306_sendchar
-    pla ; Restore A
-    rts
+serial_wstring:
+ldy #0
+txstringloop:
+lda (stringp),y
+beq stringtxd
+jsr serial_tx
+iny
+bne txstringloop
+stringtxd:
+rts ; In case of overflow
 
-    bytetoa: ;This SR puts LSB in A and MSB in HXH - as ascii using hextoa.
-        pha
-        lsr
-        lsr
-        lsr
-        lsr
-        clc
-        jsr hextoa
-        sta xtmp
-        pla
-        and #$0F
-        jsr hextoa
-        rts
+bytetoa: ;This SR puts LSB in A and MSB in HXH - as ascii using hextoa.
+pha
+lsr
+lsr
+lsr
+lsr
+clc
+jsr hextoa
+sta xtmp
+pla
+and #$0F
+jsr hextoa
+rts
 
-        hextoa:
-        ; wozmon-style
-        ;    and #%00001111  ; Mask LSD for hex print.
-        ; Already masked when we get here.
-            ora #'0'        ; Add '0'.
-            cmp #'9'+1      ; Is it a decimal digit?
-            bcc ascr        ; Yes, output it.
-            adc #$06        ; Add offset for letter.
-        ascr:
-            rts
-
-
-
-ssd1306_inittab:
-.byte $ae   ; Turn off display
-.byte $d5   ; set display clock divider
-.byte $f0   ; 0x80 default - $f0 is faster for less tearing
-.byte $a8   ; set multiplex
-.byte $3f   ; for 128x64
-.byte $40   ; Startline 0
-.byte $8d   ; Charge pump
-.byte $14   ; VCCstate 14
-.byte $a1   ; Segment remap
-.byte $c8   ; Com output scan direction
-.byte $20   ; Memory mode
-.byte $00   ;
-.byte $da   ; Com-pins
-.byte $12
-.byte $fe   ; Set contrast - full power!
-.byte $7f   ; About half
-.byte $d9   ; Set precharge
-.byte $11   ; VCC state 11
-.byte $a4   ; Display all on resume
-.byte $af   ; Display on
-.byte $b0, $10, $00 ; Page 0, column 0.
-.byte $ff ; Stop byte
-
-.include "./95char5x7font.s" ; Font
+hextoa:
+; wozmon-style
+; and #%00001111  ; Mask LSD for hex print.
+; Already masked when we get here.
+ora #'0'        ; Add '0'.
+cmp #'9'+1      ; Is it a decimal digit?
+bcc ascr        ; Yes, output it.
+adc #$06        ; Add offset for letter.
+ascr:
+rts
 
 .segment "VECTORS6502"
-.ORG $fffa
+.ORG $1ffa
 .word nmi,reset,irq
 .reloc
