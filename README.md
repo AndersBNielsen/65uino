@@ -3,10 +3,12 @@
 It's a green 6502 based learning platform in a familiar form factor and a contestant in the 2023 Hackaday Prize. By taking IC's out of the waste stream and into useful products we encourage recycling and reuse.
 It's a fun way to learn assembly programming and a tool you can use in your workshop for a lot more than you expect.
 
-You can either get a PCB using the guide below or order kit with SMD components prepopulated from iMania.dk (IC's also available if needed).
+You can either make your own, get a PCB using the guide below or order a kit with SMD components presoldered from iMania.dk (IC's available if needed).
+
 https://www.imania.dk/index.php?cPath=204&sort=5a&language=en
 
-![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg){: style="max-width:100%;"}
+
+![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg)
 
 In this repository you will find KiCAD hardware files, gerbers and 6502 ASM source files for the 65uino.
 The 65uino is based on the Single Breadboard Computer - https://youtu.be/s3t2QMukBRs
@@ -31,13 +33,13 @@ Step 1: Get the gerber file zip package from the /hardware folder
 
 Step 2: Upload to JLCPCB https://jlcpcb.com
 
-<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/upload.png?raw=true" alt="" style="max-width: 180px;">
+<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/upload.png?raw=true" alt="Upload" style="width: 220px;">
 
 Step 3: Pick your color, surface finish and order.
 
-<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/settings.png?raw=true" alt="" style="max-width: 180px;">
+<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/settings.png?raw=true" alt="Select settings" style="width: 220px;">
 
-<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true" alt="" style="max-width: 180px;">
+<img src="https://github.com/AndersBNielsen/65uino/blob/main/images/save.png?raw=true" alt="Save your choice" style="width: 220px;">
 
 
 You can use these affiliate links to get a board for $2 and also get $54 worth of New User Coupons at: https://jlcpcb.com/?from=Anders_N
