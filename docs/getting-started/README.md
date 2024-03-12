@@ -53,7 +53,7 @@ Always start from the shortest to the tallest components. You do not need to sol
 
 Before you can play with the board you need to build the ROM. For this the first order of business is to setup the development toolchain in your computer. All the software is available in multiple platfrom so it does not matter if you use Mac, Linux or Windows.
 
-### Devlelopment Toolchain
+### Development Toolchain
 
 The assembler and linker of choice is [cc65](https://cc65.github.io/doc/) a complete cross development package for 65(C)02 systems.
 
@@ -65,6 +65,7 @@ Be sure you add the cc65 `bin` folder to your path, it will make your life a lot
 To burn the rom you will need an EEPROM programmer. The programmer of choice is the venerable TL866II+.
 The software of choice here will be [minipro by David Griffith](https://gitlab.com/DavidGriffith/minipro/) if you are on Linux or Mac. This is a great open source program for controlling the TL866xx series of chip programmers.
 If you use Windows you will have to use the native (GUI) Xgecu software that came with you TL866xx. Xgecu does not have a command line option so you will have to burn manually.
+Note: Stay tuned - the 65uino will soon have it's own (cheaper) native programmer for most ROMs (including the high voltage ones)
 
 ### The 65uino BIOS
 
@@ -75,10 +76,10 @@ In the 65uino the BIOS implements:
 - [Libraries for driving a SSD1306 0.98 in OLED](https://www.youtube.com/watch?v=x6xsTXY7OtI&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=11&t=744s) with an example implementation that will act as a serial echo console
 - [A serial bootloader](https://www.youtube.com/watch?v=nOmQd3y3pDw&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=10) to load your own binaries without flashing the ROM.
 
-The BIOS source is in `abn6507rom.s` and the font data lives in `95char5x7font.s`.
+The BIOS source and userland code is in `abn6507rom.s`. I2C, SSD1306, font file, and library routines live in separate files as well. 
 
 The serial port is TTL level so you will need to use an TTL to USB FTDI [board](https://www.amazon.com/gp/product/B07WX2DSVB/) or cable to connect the 65uino to your computer.
-The BIOS is set for the serial to work at 4800bps, 8 bits, no parity, 1 stop bit with XON flow control. You can test it form the command prompt with `stty` or with a terminal program like [CoolTerm](https://freeware.the-meiers.org/) which works for all platfroms.
+The BIOS is set for the serial to work at 9600bps, 8 bits, no parity, 1 stop bit with XON flow control. You can test it form the command prompt with `stty` or with a terminal program like [CoolTerm](https://freeware.the-meiers.org/) which works for all platfroms.
 
 ### Build your ROMs
 
@@ -91,21 +92,17 @@ Below is a quick walkthrough of the `assemble.sh` build script.
 /opt/homebrew/bin/ca65 -vvv --cpu 6502 -l  build/listing.txt -o  build/abn6507rom.o abn6507rom.s
 /opt/homebrew/bin/ld65 -o build/abn6507rom.bin -C memmap.cfg "./build/abn6507rom.o" #"./build/crom.o" "./build/userland.o"
 #/opt/homebrew/bin/minipro -s -p "W27C512@DIP28" -w  build/abn6507rom.bin
-SERIAL=0
-baudrate=4800
+SERIAL=1
+baudrate=9600
 if [[ $SERIAL -eq 0 ]]; then
-minipro -s -p "SST39SF010A" -w build/abn6507rom.bin
+minipro -s -p "SST39SF010A" -w build/abn6507rom.bin #Note the ROM model in this line (-s ignores ROM size differs from file)
 else
-serial="/dev/cu.usbs*" #macos
+serial="/dev/cu.usb*" #macos
 eval serial=$serial
-cat -v < $serial & #Keep serial alive
-pid=$! #Save for later
-stty -f $serial $baudrate
-echo -n $'\x01' > $serial #Send SOH to get 65uino ready to receive
-sleep 0.1 #Wait for timeout
-cat build/userland.bin > $serial
-kill $pid #Terminate serial
-wait $pid 2>/dev/null #silence!
+bytes=$(stat -c %s build/userland.bin 2>/dev/null || stat -f %z build/userland.bin)
+xxd build/userland.bin
+echo "Uploading $bytes bytes..."
+python3 send_userland.py $serial $baudrate build/userland.bin #Script requires python and pyserial module: pip3 install pyserial
 fi
 ```
 
@@ -129,37 +126,34 @@ minipro -s -p "SST39SF010A" -w build/abn6507rom.bin
 ```
 
 This line will use `minipro` to burn the BIOS ROM and finish the script.
-It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your PATH. If you are using the more common 27C512 EEPROM change th e`-p` parameter to *"W27C512@DIP28"*.
+It assumes you are using a *SST39SF010A* NOR Flash and that *minipro* is in your PATH. If you are using the other common W27C512 EEPROM change th e`-p` parameter to *"W27C512@DIP28"*.
 
 If you want to use this script to transfer your own code, you need to change line 5 and set SERIAL to something other than 0, e.g. `SERIAL=1`.
-Your code should line in the *USERLAND* segment in `anb6507rom.s`
+Your code should line in the *USERLAND* segment in `abn6507rom.s`
 
 When SERIAL is not 0 this portion of the script will execute that will enable you to load your own code via serial.
 
 ```bash
-serial="/dev/cu.usbs*" #macos
+serial="/dev/cu.usb*" #macos
 eval serial=$serial
-cat -v < $serial & #Keep serial alive
-pid=$! #Save for later
-stty -f $serial $baudrate
-echo -n $'\x01' > $serial #Send SOH to get 65uino ready to receive
-sleep 0.1 #Wait for timeout
-cat build/userland.bin > $serial
-kill $pid #Terminate serial
-wait $pid 2>/dev/null #silence!
+bytes=$(stat -c %s build/userland.bin 2>/dev/null || stat -f %z build/userland.bin)
+xxd build/userland.bin
+echo "Uploading $bytes bytes..."
+python3 send_userland.py $serial $baudrate build/userland.bin #Script requires python and pyserial module: pip3 install pyserial
 ```
 
-This section is tested and works in MacOS, only the `serial="/dev/cu.usbs*"` line may need modification for Linux.
+This section is tested and works in MacOS, only the `serial="/dev/cu.usbs*"` line may need modification for Linux and Windows(replace the serial and eval lines).
 
-It initiates `stty` in the USB 2 serial port at 4800 bauds.
-Then to set the 65uino board into serial bootloader mode, line 15 sends a [SOH](https://www.ascii-code.com/character/%E2%90%81) ASCII charater which correspond to HEX 01.
-After that it just sends the `userland.bin` though the serial terminal and kills the process.
+The baud rate is set in line 6 and also near the top of `abn6507rom.s` and can be set to 9600 or divided down by any integer power of 2. In other words: 9600, 4800, 2400, 1200, 600, 300 and so on. 
+For convenience the userland code size and hex bytes are printed out before uploading starts using the Python script `send_userland.py`. Note the script requires python and the pyserial module. 
+The script sets the 65uino board into serial bootloader mode, by sending a [SOH](https://www.ascii-code.com/character/%E2%90%81) ASCII character which corresponds to HEX 01.
+After that it just sends the `userland.bin` though the serial terminal, waits for the buffer to empty and closes the serial port.
 
-Then your code will be loaded into RAM and ready to run in the 65uino.
+From that point your code will be loaded into RAM and will run on the 65uino.
 
 ## 65uino Architecture
 
-To start writing let's begin underatnding the 65uino architecture. The hardware is based on the MOS Technology 6507 chip (made famous by the Atari 2600), this chip is a MOS 6502 die in a 28 pin DIP package. The reduction of pins, 40 to 28, means that it lacks A13-A15 address lines (which limits it`s address space to 8K) an unfortunatelly also /INT and /NMI.
+To start writing let's begin underatnding the 65uino architecture. The hardware is based on the MOS Technology 6507 chip (made famous by the Atari 2600), this chip is a MOS 6502 die in a 28 pin DIP package. The reduction of pins, 40 to 28, means that it lacks A13-A15 address lines (which limits it`s address space to 8K) and unfortunately also /INT and /NMI.
 Besides interrupt handling, all other aspects of 6502 programming and interfacing can be learn with this board.
 
 For I/O and RAM we are using a [6532 RIOT](https://www.youtube.com/watch?v=Fo5bwoBWVhU&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=17) also made famouns by the [Atari 2600](https://en.wikipedia.org/wiki/Atari_2600). 
@@ -175,7 +169,7 @@ The RIOT provides 128 bytes of static RAM (yes those are BYTES), two bidirection
 
 Given that the 6507 can only access addresses using the low 13 bits of an address (8kb), bits 14, 15, and 16 are totally ignored. This means that the first 8Kb memory segment is mirrored 8 times in the 6502 full addresable space.
 
-Because of this and the fact that the 6502 reset vectors live at $FFFA to $FFFF. For consistency with other architectures is better to picture the ROM in the last mirror image at $F000-$FFFF.
+Because of this and the fact that the 6502 reset vectors live at $FFFA to $FFFF, for consistency with other architectures it is better to picture the ROM in the last mirror image at $F000-$FFFF.
 
 ## Writing your code
 
@@ -186,5 +180,6 @@ The cc65 environment is already configured for you in the project. The `memmap.c
 - RODATA: This is the 4kb ROM segment starting at $F000
 - VECTORS6502: This starts at $FFFA (ROM) and is used for defining the reset vectors
 
-You have to use the ***USERLAND*** segment to write yur code. You have 91 bytes of RAM for your code that can be loaded through the serial bootloader.
-This segments is compiled and linked to `build/userland.bin`.
+You have to use the ***USERLAND*** segment to write your code. You have less than 100 bytes of RAM for your code that can be loaded through the serial bootloader, exact amount depending on how the stack is used. 
+
+This segments are compiled and linked to `build/userland.bin`.
