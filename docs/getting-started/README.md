@@ -167,7 +167,7 @@ The RIOT provides 128 bytes of static RAM (yes those are BYTES), two bidirection
 | $0080-00ff | RIOT Registers |
 | $1000-$1FFF | ROM |
 
-Given that the 6507 can only access addresses using the low 13 bits of an address (8kb), bits 14, 15, and 16 are totally ignored. This means that the first 8Kb memory segment is mirrored 8 times in the 6502 full addresable space.
+Given that the 6507 can only access addresses using the low 13 bits of an address (8kb), bits 14, 15, and 16 are totally ignored. This means that the first 8Kb memory segment is mirrored 8 times in the 6502 full addressable space.
 
 Because of this and the fact that the 6502 reset vectors live at $FFFA to $FFFF, for consistency with other architectures it is better to picture the ROM in the last mirror image at $F000-$FFFF.
 
