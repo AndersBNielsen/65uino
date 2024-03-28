@@ -86,6 +86,7 @@ serialbuf: .res 0 ; Reserve 1 byte for serialbuf - Used for text display and use
 timer2  = stringp ; We're not going to be printing strings while waiting for timer2
 
 romaddr = runpnt
+longdelay = txcnt
 
 .SEGMENT "USERLAND"
 .org $0e ; Just to make listing.txt match
@@ -94,6 +95,7 @@ userland:
 lda #%01000000 ; Indicator cloning started
 jsr latchctrl
 
+/* Can't wipe EPROM
 jsr identifyrom ; Returns ROM ID in romaddr(+1)
 lda romaddr
 cmp #$DA ; Winbond
@@ -106,14 +108,20 @@ wipe:
 print erasing ; Print macro in macros.s
 jsr erasew27c512 ; First we erase it
 
-/*
+*/
 checkblank:
 print verifying
 jsr blankcheck ; Verify erasure
 cpx #$ff ; Check byte value 
 bne notblank
 print romblankstr
-*/
+
+notblank:
+lda romaddr+1
+jsr printbyte ; Print address of first mismatch ($1000 if OK)
+lda romaddr
+jsr printbyte
+print bytesverifiedstr
 
 /*
 lda #$FA
@@ -122,16 +130,30 @@ ldx #0
 jsr writerom
 */
 
-print cloning
-jsr cloneROM ; Write 65uino ROM
+lda #50
+sta longdelay ; Must be initialized to either 0 for 100us ROMs or number of ms for slow programming Roms
+
+/*print cloning
+
+LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE 
+JSR latchctrl  ; Latch the updated control signals
+
+lda #$ff 
+sta DDRA
+jsr delay_long ; ~256ms
+lda #$ff 
+jsr delay_long ; ~256ms
+lda #$ff 
+jsr delay_long ; ~256ms
+
+;jsr clonerom2 ; Write 65uino ROM
+*/
 
 print verifying
 jsr clonecheck ; Verify
 
 lda #%01000000
 jsr latchctrl
-
-notblank:
 
 ;print romnotblankstr
 lda #'$'
@@ -142,7 +164,7 @@ jsr printbyte ; Print address of first mismatch ($1000 if OK)
 lda romaddr
 jsr printbyte
 print bytesverifiedstr
-jmp halt
+jmp halt ; Back to main
 
 notwb:
 ;print unrecognized
@@ -558,10 +580,10 @@ STA DRB
 AND #BITMASK_CLEAR_RMSBLE & BITMASK_CLEAR_RLSBLE ; Clear LE and output
 STA DRB
 
-tya
+tya ; Clear A
 sta DDRA ; A input
 LDA DRB
-AND #BITMASK_CLEAR_ROM_CE & BITMASK_CLEAR_ROM_OE;Output ROM data
+AND #BITMASK_CLEAR_ROM_CE & BITMASK_CLEAR_ROM_OE ;Output ROM data
 sta DRB
 lda DRA
 eor #$ff
@@ -611,10 +633,11 @@ JSR latchctrl  ; Latch the updated control signals
 LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE | BITMASK_SET_VPE_TO_VPP
 JSR latchctrl  ; Latch the updated control signals
 
-lda #$ff
+lda #$ff 
 sta DDRA
-jsr delay_short
+jsr delay_short ; ~2msr
 
+clonerom2:
 lda #0 ; Address latches to 0
 sta romaddr ; Zero LSB 
 sta DRA
@@ -648,12 +671,19 @@ STA DRB
 lda (romaddr),Y
 sta DRA
 lda DRB
-AND #BITMASK_CLEAR_ROM_CE
+AND #BITMASK_CLEAR_ROM_CE ; Programming pulse start
 sta DRB
+lda longdelay
+bne defaultpulse
+jsr delay_long
+clc
+bcc pulsed
+defaultpulse:
 lda #11
 jsr delay_short
+pulsed:
 lda DRB
-ORA #BITMASK_SET_ROM_CE
+ORA #BITMASK_SET_ROM_CE ; Programming pulse end
 sta DRB
 iny
 bne pageloop
