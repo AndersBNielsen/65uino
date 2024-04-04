@@ -92,23 +92,50 @@ longdelay = txcnt
 .org $0e ; Just to make listing.txt match
 userland:
 
-lda #%01000000 ; Indicator cloning started
+;Enable VPE and halt - for calibration of VPE
+;lda #BITMASK_SET_REG_DISABLE
+;jsr latchctrl
+;halthere:
+;jmp halthere
+
+jsr clonetow27c512 ; Clone and verify (print to SSD1306)
+jmp halt 
+/*
+LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE | BITMASK_SET_VPE_TO_VPP
+JSR latchctrl  ; Latch the updated control signals
+
+lda #$ff 
+sta DDRA
+jsr delay_short ; ~2ms
+jsr delay_short ; ~2ms
+
+;jsr clonetow27c512nowipe
+;jsr clonerom2
+*/
+
+;This snippit checks if ROM is identical to ROM in programmer
+/*
+lda #%01000000 ; Indicator 
+jsr latchctrl
+print verifying
+jsr clonecheck ; Verify
+
+lda #%01000000
 jsr latchctrl
 
-/* Can't wipe EPROM
-jsr identifyrom ; Returns ROM ID in romaddr(+1)
-lda romaddr
-cmp #$DA ; Winbond
-bne notwb
+;print romnotblankstr
+lda #'$'
+jsr ssd1306_sendchar
+
 lda romaddr+1
-cmp #8 ; 08 = W27C512
-bne notwb
-
-wipe:
-print erasing ; Print macro in macros.s
-jsr erasew27c512 ; First we erase it
-
+jsr printbyte ; Print address of first mismatch ($1000 if OK)
+lda romaddr
+jsr printbyte
+print bytesverifiedstr
+jmp halt ; Back to main
 */
+
+/* ;This snippet checks if a ROM is blank
 checkblank:
 print verifying
 jsr blankcheck ; Verify erasure
@@ -130,10 +157,12 @@ ldx #0
 jsr writerom
 */
 
+
+; This snippet programs ROM contents to a 2732 ROM (if VPE is connected correctly and configured to 21V )
+/*print cloning
+
 lda #50
 sta longdelay ; Must be initialized to either 0 for 100us ROMs or number of ms for slow programming Roms
-
-/*print cloning
 
 LDA #BITMASK_SET_REG_DISABLE | BITMASK_SET_VPE_ENABLE 
 JSR latchctrl  ; Latch the updated control signals
@@ -149,27 +178,7 @@ jsr delay_long ; ~256ms
 ;jsr clonerom2 ; Write 65uino ROM
 */
 
-print verifying
-jsr clonecheck ; Verify
-
-lda #%01000000
-jsr latchctrl
-
-;print romnotblankstr
-lda #'$'
-jsr ssd1306_sendchar
-
-lda romaddr+1
-jsr printbyte ; Print address of first mismatch ($1000 if OK)
-lda romaddr
-jsr printbyte
-print bytesverifiedstr
-jmp halt ; Back to main
-
-notwb:
-;print unrecognized
-;print foundwithid 
-
+;This snippet waits for a serial byte to arrive - and prints it as hex when it does
 /*
 w4serial:
 lda DRA ; Check serial 3c
@@ -417,6 +426,52 @@ verifying: .asciiz "Verifying.. \n"
 romnotblankstr: .asciiz "First mismatch found at addr: $"
 bytesverifiedstr: .asciiz " bytes verified OK"
 
+clonetow27c512:
+lda #%01000000 ; Indicator cloning started
+jsr latchctrl
+
+jsr identifyrom ; Returns ROM ID in romaddr(+1)
+lda romaddr
+cmp #$DA ; Winbond
+bne notwb
+lda romaddr+1
+cmp #8 ; 08 = W27C512
+bne notwb
+
+wipe:
+print erasing ; Print macro in macros.s
+jsr erasew27c512 ; First we erase it
+
+
+clonetow27c512nowipe:
+lda #0
+sta longdelay ; Must be initialized to either 0 for 100us ROMs or number of ms for slow programming Roms
+
+print cloning
+jsr cloneROM
+
+print verifying
+jsr clonecheck ; Verify
+
+lda #%01000000
+jsr latchctrl
+
+;print romnotblankstr
+lda #'$'
+jsr ssd1306_sendchar
+
+lda romaddr+1
+jsr printbyte ; Print address of first mismatch ($1000 if OK)
+lda romaddr
+jsr printbyte
+print bytesverifiedstr
+rts
+
+notwb:
+print unrecognized
+print foundwithid 
+rts
+
 identifyrom:
 jsr getromid
 stx romaddr ; tmp
@@ -635,7 +690,7 @@ JSR latchctrl  ; Latch the updated control signals
 
 lda #$ff 
 sta DDRA
-jsr delay_short ; ~2msr
+jsr delay_short ; ~2ms
 
 clonerom2:
 lda #0 ; Address latches to 0
@@ -674,7 +729,7 @@ lda DRB
 AND #BITMASK_CLEAR_ROM_CE ; Programming pulse start
 sta DRB
 lda longdelay
-bne defaultpulse
+beq defaultpulse
 jsr delay_long
 clc
 bcc pulsed
@@ -695,8 +750,6 @@ bne nextpage
 lda #0
 JSR latchctrl  ; Latch the updated control signals
 rts
-
-
 
 writerom: ; Expects byte to burn in A, ROM address in $XY
 ; Returns: Nothing, but leaves voltages ON!(!)
