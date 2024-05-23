@@ -5,7 +5,10 @@ import serial
 def send_file(serial_port, baud_rate, file_path, block_size):
     try:
         # Open serial port
-        ser = serial.Serial(serial_port, baud_rate, timeout = 0.001, inter_byte_timeout=0.001)
+        ser = serial.Serial(serial_port, baud_rate, timeout = 0.001, inter_byte_timeout=0.001, dsrdtr=True)
+        # Disable the DTR signal to prevent reset
+        ser.dtr = False
+        time.sleep(2)
         
         start_time = time.time()
         

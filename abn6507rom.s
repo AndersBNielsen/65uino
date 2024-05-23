@@ -86,6 +86,9 @@ RES5          = 128
 .org $0e ; Just to make listing.txt match
 userland:
 
+;jsr identifyrom
+
+jsr checkblank
 /*
 ; This snippet just twiddles LED's
 ; Set DDRA to $FF to configure port A as output
@@ -793,9 +796,7 @@ and #ID_A9_VPP_MSK
 beq enablevppduringid
 */
 
-lda #BITMASK_REG_DISABLE | BITMASK_A9_VPP_ENABLE
-
-lda #BITMASK_VPE_TO_VPP | BITMASK_REG_DISABLE | BITMASK_A9_VPP_ENABLE
+lda #BITMASK_VPE_   TO_VPP | BITMASK_REG_DISABLE | BITMASK_A9_VPP_ENABLE
 jsr latchctrl
 lda #$50
 jsr delay_long ; Stabilize VPP
@@ -1195,7 +1196,7 @@ readrom2:
 
   ; Set ROM_CE (bit 7) and ROM_OE (bit 4) to enable the ROM chip
   ;LDA DRB ; Don't need to reload
-  AND #~BITMASK_ROM_CE&$FF & ~BITMASK_ROM_OE&$FF
+  AND #~BITMASK_ROM_CE& $FF & ~BITMASK_ROM_OE&$FF
   STA DRB
 
   ; Load the byte from the ROM into the accumulator

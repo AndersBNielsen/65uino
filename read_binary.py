@@ -6,14 +6,16 @@ def get_file(serial_port, baud_rate, file_path, total_bytes, block_size):
     try:
         # Open serial port
         ser = serial.Serial(serial_port, baud_rate)
-        
+        time.sleep(4)
+
         ser.write(b'\xAA') # Command byte
         # Send block size as a byte
         ser.write(b'\x01') # Command
         ser.write(bytes([block_size])) # Block size
         ser.write(b'\x00') #LSB
         ser.write(b'\x00') #MSB
-        ser.write(b'\x10') # Stoppage
+        stoppage = (total_bytes >> 8) & 0xFF 
+        ser.write(bytes([stoppage])) # Stoppage
 
         start_time = time.time()
 
@@ -45,7 +47,8 @@ def get_file(serial_port, baud_rate, file_path, total_bytes, block_size):
 
         except KeyboardInterrupt:
             # Handle Ctrl+C gracefully
-            print("\nSerial reading stopped by user")
+            print("\nSerial reading stopped by user at ")
+            print(bytes_received)
         
         # Write buffer to file
         with open(file_path, 'wb') as f:

@@ -7,7 +7,7 @@ def send_file(serial_port, baud_rate, command, opt1, opt2):
         # Open serial port
         ser = serial.Serial(serial_port, baud_rate, timeout=0)
         # Send Start of Header (SOH) byte (hex 0x01)
-        time.sleep(0.1)
+        time.sleep(3)
         ser.write(b'\xAA')
         ser.write(bytes.fromhex(command))
 
