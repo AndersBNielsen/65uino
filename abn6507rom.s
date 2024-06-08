@@ -89,6 +89,9 @@ userland:
 ;jsr identifyrom
 
 jsr checkblank
+
+
+
 /*
 ; This snippet just twiddles LED's
 ; Set DDRA to $FF to configure port A as output
@@ -796,7 +799,7 @@ and #ID_A9_VPP_MSK
 beq enablevppduringid
 */
 
-lda #BITMASK_VPE_   TO_VPP | BITMASK_REG_DISABLE | BITMASK_A9_VPP_ENABLE
+lda #BITMASK_VPE_TO_VPP | BITMASK_REG_DISABLE | BITMASK_A9_VPP_ENABLE
 jsr latchctrl
 lda #$50
 jsr delay_long ; Stabilize VPP
