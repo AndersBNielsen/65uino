@@ -466,6 +466,12 @@ jsr rom_fillbuf
 ldy #$7f
 jsr serial_wbuf
 lda romaddr+1
+cmp #$ff
+bne notlastread
+lda #0
+sta stoppage
+lda romaddr+1
+notlastread:
 cmp stoppage
 bne fetchromandsendserial
     lda romaddr
@@ -511,6 +517,12 @@ jsr rom_writebuf ; This needs to be fixed to allow for different profiles
 LDA #BITMASK_REG_DISABLE | BITMASK_VPE_TO_VPP ; This should be fixed to match the programming profile
 JSR latchctrl  ; Latch the updated control signals
 lda romaddr+1
+cmp #$ff
+bne notlast
+lda #0
+sta stoppage
+lda romaddr+1
+notlast:
 ldy #$7f
 cmp stoppage
 bne fetchandburnrom
