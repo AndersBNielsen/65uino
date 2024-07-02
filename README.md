@@ -31,7 +31,7 @@ This project is kindly sponsored by JLCPCB. They offer cheap, professional looki
 Step 1: Get the gerber file zip package from the /hardware folder
 [hardware/65uinogerbers20231023-nomousebites.zip](https://github.com/AndersBNielsen/65uino/blob/main/hardware/65uinogerbers20231023-nomousebites.zip) for instance.
 
-Step 2: Upload to JLCPCB https://jlcpcb.com
+Step 2: Upload to JLCPCB [https://jlcpcb.com/?from=Anders_N](https://jlcpcb.com/?from=Anders_N)
 
 <img src="https://github.com/AndersBNielsen/65uino/blob/main/images/upload.png?raw=true" alt="Upload" style="width: 220px;">
 
@@ -45,4 +45,4 @@ Step 3: Pick your color, surface finish and order.
 You can use these affiliate links to get a board for $2 and also get $54 worth of New User Coupons at: https://jlcpcb.com/?from=Anders_N
 
 And in case you also want to order a 3D-printed case you can use this link. 
-How to Get a $7 3D Printing Coupon: https://3d.jlcpcb.com/?from=Anders3DP
+How to Get a $7 3D Printing Coupon: [https://3d.jlcpcb.com/?from=Anders3DP](https://jlc3dp.com/?from=Anders_N)
