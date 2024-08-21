@@ -19,7 +19,7 @@
 
 Before you start getting wrapped into writing 6502 assembly to conquer the world, you'll need to get soldering, set up the board and burn some software in the EEPROM.
 
-If you’re new to the 65uino, you might want to [check out the videos](https://www.youtube.com/playlist?list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv) first where you will see how the 65uino came to be, and how it works. You'll find more details in the [HackaDay Project page](https://hackaday.io/project/190260-65uino)
+If you’re new to the 65uino, you might want to [check out the videos](https://www.youtube.com/playlist?list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv) first where you will see how the 65uino came to be, and how it works. You'll find more details on the [HackaDay Project page](https://hackaday.io/project/190260-65uino)
 
 ![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg)
 
@@ -36,9 +36,9 @@ You will need the 4 core ICs: CPU, RAM/IO and ROM. Be green, get em while they'r
 
 I recommend you use sockets for the ICs, you'll need: 1 x 40-pin socket, 2 x 28-pin sockets. And the Pin Headers:
 
-- 2 x PinHeader Female Socket 2.54mm / 8 pins
+- 1 x PinHeader Female Socket 2.54mm / 4 pins
 - 1 x PinHeader Female Socket 2.54mm / 6 pins
-- 1 x PinHeader Female Socket 2.54mm / 10 pins
+- 2 x PinHeader Female Socket 2.54mm / 8 pins
 - 1 x PinHeader Female Socket 2.54mm / 10 pins
 
 If you did not to get the populated board, the full [BOM is in the repo](https://github.com/AndersBNielsen/65uino/blob/main/hardware/65uino-bom.csv)
@@ -51,7 +51,7 @@ Always start from the shortest to the tallest components. You do not need to sol
 
 ## The Software
 
-Before you can play with the board you need to build the ROM. For this the first order of business is to setup the development toolchain in your computer. All the software is available in multiple platfrom so it does not matter if you use Mac, Linux or Windows.
+Before you can play with the board you need to build the ROM. For this the first order of business is to setup the development toolchain in your computer. All the software is available on multiple platfrom so it does not matter if you use Mac, Linux or Windows.
 
 ### Development Toolchain
 
@@ -75,6 +75,7 @@ In the 65uino the BIOS implements:
 - RS232 TTL Serial with XON/OFF flow control, bitbanged in Port A of the RIOT. RX is pin D0 and TX pin D1. 
 - [Libraries for driving a SSD1306 0.98 in OLED](https://www.youtube.com/watch?v=x6xsTXY7OtI&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=11&t=744s) with an example implementation that will act as a serial echo console
 - [A serial bootloader](https://www.youtube.com/watch?v=nOmQd3y3pDw&list=PL9Njj9WL8poFsM4C6Gi8V5FRoidOOL0Fv&index=10) to load your own binaries without flashing the ROM.
+- [Driver for the Relatively Universal ROM Programmer-shield](https://github.com/AndersBNielsen/Relatively-Universal-ROM-Programmer) which let's you burn even the most difficult 21V ROMs. ( [Video playlist for the programmer](https://www.youtube.com/playlist?list=PL9Njj9WL8poFKFq03qnmonrOxVDG5TOT6) )
 
 The BIOS source and userland code is in `abn6507rom.s`. I2C, SSD1306, font file, and library routines live in separate files as well. 
 
