@@ -152,7 +152,9 @@ dey
 bne send0
 jsr i2c_stop
 
+setcursor:
 lda cursor
+setcursor2:
 and #$0F ; Discard page
 jsr ssd1306_setcolumn ; Set new column
 lda cursor
@@ -191,6 +193,19 @@ lda tflags
 beq notscrolling
 jsr ssd1306_scrolldown
 notscrolling:
+rts
+
+;Scroll but don't clear the first line
+ssd1306_scrollup_noclear:
+  lda #$d3
+  jsr ssd1306_cmd
+  lda scroll
+  sec
+  sbc #8 ; Doesn't care about bits 6+7
+  sta scroll
+  sta outb
+  jsr i2cbyteout
+  jsr i2c_stop
 rts
 
 ssd1306_scrolldown:
@@ -299,6 +314,41 @@ printbyte:
     jsr ssd1306_sendchar
     pla ; Restore A
     rts
+
+fastprint:
+tay ; Save out byte
+clc ; Write
+jsr i2c_start
+lda #$40 ; Co bit 0, D/C 1
+sta outb
+jsr i2cbyteout
+;outb already 0
+jsr i2cbyteout ; Send 0
+lda fontc1-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc2-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc3-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc4-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+lda fontc5-$20, y ; Get font column pixels
+sta outb
+jsr i2cbyteout
+jsr i2cbyteout ; Send 0
+jsr i2cbyteout ; Send 0
+jsr i2c_stop
+
+lda cursor
+clc
+adc #1
+and #127
+sta cursor
+rts
 
 ssd1306_inittab:
 .byte $ae   ; Turn off display

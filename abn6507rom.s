@@ -85,10 +85,11 @@ RES5          = 128
 .SEGMENT "USERLAND"
 .org $0e ; Just to make listing.txt match
 userland:
+jsr flappylarus
 
 ;jsr identifyrom
 
-jsr checkblank
+;jsr checkblank
 
 
 
@@ -183,9 +184,7 @@ halt:
 ldy #0
 lda #$02 ; Bit 1 is serial TX (Output)
 sta DDRA
-sty mode
-sty txcnt
-sty rxcnt
+;sty mode
 jmp main ; Get ready for new code
 
 fifobuffer:
@@ -404,6 +403,7 @@ jsr serial_tx
 gowait:
 jmp wait
 
+.include "flappylarus.s" ; Flappy Larus game routines
 .include "i2c.s" ; i2c rutines specifically for the 65uino. Provides i2c_start, i2cbyteout, i2cbytein, i2c_stop - expects a few 
 .include "ssd1306.s" ; SSD1306 routines specifically for the 65uino. Provides ssd1306_init, ssd1306_clear, ssd1306_sendchar, ssd1306_setline, ssd1306_cmd, ssd1306_wstring, printbyte
 
