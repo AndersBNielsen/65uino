@@ -12,3 +12,6 @@ hardware/65uino-top-pos-fixed.csv
 hardware/65uino-top-pos.csv
 rom.hex
 test*
+hardware/fp-info-cache
+hardware/~65uino.kicad_pcb.lck
+hardware/~65uino.kicad_sch.lck
