@@ -5,7 +5,10 @@ import serial
 def send_file(serial_port, baud_rate, file_path):
     try:
         # Open serial port
+
         ser = serial.Serial(serial_port, baud_rate, timeout=0)
+        # 65uino Rev 1 delay
+        time.sleep(1);
         # Send Start of Header (SOH) byte (hex 0x01)
         ser.write(b'\x01')
 
@@ -14,11 +17,11 @@ def send_file(serial_port, baud_rate, file_path):
             file_data = file.read()
 
         # Wait for 65uino to get ready for data
-        time.sleep(0.1)
+        time.sleep(0.2)
 
         ser.write(file_data)
 
-        time.sleep(0.1) #Closing too fast empties TX buffer without sending 
+        time.sleep(0.5) #Closing too fast empties TX buffer without sending 
 
         print("File sent successfully.")
 

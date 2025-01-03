@@ -105,7 +105,8 @@ adc cursor
 and #$7F ; Throw away only the top bit since scroll offset might have it set
 
 bne l451 ; Again - not taking scroll offset into account..
-lda #1 ; We reached wraparound so we start scrolling
+lda tflags ; We reached wraparound so we start scrolling
+ora #1
 sta tflags ; Terminal flags
 l451:
 lda cursor
@@ -113,6 +114,7 @@ and #$0F ; Check if we started a new line and need to reset cursor position.
 bne nonewline
 jsr ssd1306_setcolumn
 lda tflags ; Check scroll flag
+and #1
 beq nonewline
 jsr ssd1306_scrolldown
 nonewline:
@@ -131,7 +133,7 @@ and #$0F ; Discard page
 cmp #$0F ; Wrapped back a line
 bne nocolwrap
 ldy #0
-sty tflags ; Scroll off
+sty tflags ; Scroll and invert off
 nocolwrap:
 jsr ssd1306_setcolumn ; Set new column
 lda cursor
@@ -178,8 +180,9 @@ clc ; Need this?
 adc cursor
 and #$70 ; Throw away top bit since scroll offset might have it set
 bne nowrap ; Now factoring in scroll offset!
-ldy #1
-sty tflags
+lda tflags
+ora #1
+sta tflags
 nowrap:
 lda cursor
 lsr
@@ -190,6 +193,7 @@ jsr ssd1306_setline
 lda #0
 jsr ssd1306_setcolumn ; CR
 lda tflags
+and #1
 beq notscrolling
 jsr ssd1306_scrolldown
 notscrolling:
@@ -244,9 +248,12 @@ ssd1306_scrolldown:
   rts
 
 ssd1306_setcolumn:
+;Accepts column in A
 asl ; 15 >> >> >> 120
 asl
 asl
+ssd1306_zerocolumn: 
+;A must still be 0, just skipping the shifts
 pha
 lda #$21 ; Set column command (0-127)
 jsr ssd1306_cmd
@@ -297,7 +304,7 @@ stringloop:
 lda (stringp),y
 beq sent
 sty xtmp
-jsr ssd1306_sendchar
+jsr fastprint
 ldy xtmp
 iny
 bne stringloop
@@ -323,6 +330,39 @@ lda #$40 ; Co bit 0, D/C 1
 sta outb
 jsr i2cbyteout
 ;outb already 0
+bit tflags
+bpl noinv
+lda #$ff
+sta outb
+jsr i2cbyteout ; Send 0
+lda fontc1-$20, y ; Get font column pixels
+eor #$ff ; Invert pixel column
+sta outb
+jsr i2cbyteout
+lda fontc2-$20, y ; Get font column pixels
+eor #$ff ; Invert pixel column
+sta outb
+jsr i2cbyteout
+lda fontc3-$20, y ; Get font column pixels
+eor #$ff ; Invert pixel column
+sta outb
+jsr i2cbyteout
+lda fontc4-$20, y ; Get font column pixels
+eor #$ff ; Invert pixel column
+sta outb
+jsr i2cbyteout
+lda fontc5-$20, y ; Get font column pixels
+eor #$ff ; Invert pixel column
+sta outb
+jsr i2cbyteout
+ldy #$ff
+sty outb
+jsr i2cbyteout ; Send $ff
+sty outb
+jsr i2cbyteout ; Send $ff
+clc
+bcc finishfastprint
+noinv:
 jsr i2cbyteout ; Send 0
 lda fontc1-$20, y ; Get font column pixels
 sta outb
@@ -341,6 +381,7 @@ sta outb
 jsr i2cbyteout
 jsr i2cbyteout ; Send 0
 jsr i2cbyteout ; Send 0
+finishfastprint:
 jsr i2c_stop
 
 lda cursor
