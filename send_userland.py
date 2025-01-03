@@ -6,9 +6,10 @@ def send_file(serial_port, baud_rate, file_path):
     try:
         # Open serial port
         ser = serial.Serial(serial_port, baud_rate, timeout=0)
+         # 65uino Rev 1 delay
+        time.sleep(0.8);
         # Send Start of Header (SOH) byte (hex 0x01)
         ser.write(b'\x01')
-
         # Send binary file
         with open(file_path, 'rb') as file:
             file_data = file.read()

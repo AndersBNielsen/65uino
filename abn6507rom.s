@@ -85,6 +85,7 @@ RES5          = 128
 .SEGMENT "USERLAND"
 .org $0e ; Just to make listing.txt match
 userland:
+
 jsr flappylarus
 
 ;jsr identifyrom
@@ -216,7 +217,7 @@ clearzp:
     lda #%10111100  ; Set B register direction: Bit 0, 1 are SCL and SDA, bit 6 is input button
     sta DDRB
 
-    lda #%11111001  ; Set A register direction: Rest of port is input
+    lda #%11111011  ; Set A register direction: Rest of port is input
     sta DRA
     lda #$02       ; Set bit 1 of DDRA for serial TX (Output)
     sta DDRA
@@ -402,6 +403,47 @@ jsr serial_tx
 */
 gowait:
 jmp wait
+
+stepperdriver:
+sta mode
+lda #$0C ; Set bits 2 and 3 as outputs
+sta DDRA
+
+; Initialize direction (default to clockwise, bit 3 = 0)
+lda #$08
+sta xtmp
+
+more:
+; Check button press (DRB bit 6 = low)
+bit DRB      ; Load DRB register
+bvs noleft ; Skip if bit 6 is high (button not pressed)
+lda #8
+sta xtmp
+noleft:
+bit DRA
+bvs no_change
+; Toggle direction
+lda #0
+sta xtmp
+
+no_change:
+ldx #1
+spin:
+lda xtmp     ; Load the direction from xtmp
+ora #$04     ; Combine with step (bit 2)
+sta DRA      ; Write to DRA (step + direction)
+lda #61      ; 500uS delay
+jsr delay_short
+lda xtmp     ; Load direction again (to clear step while keeping direction)
+sta DRA      ; Clear step (only direction bit remains)
+lda #61
+jsr delay_short
+dex
+bne spin
+
+lda mode
+jsr delay_long
+jmp more
 
 .include "flappylarus.s" ; Flappy Larus game routines
 .include "i2c.s" ; i2c rutines specifically for the 65uino. Provides i2c_start, i2cbyteout, i2cbytein, i2c_stop - expects a few 
