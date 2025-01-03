@@ -217,7 +217,7 @@ clearzp:
     lda #%10111100  ; Set B register direction: Bit 0, 1 are SCL and SDA, bit 6 is input button
     sta DDRB
 
-    lda #%11111001  ; Set A register direction: Rest of port is input
+    lda #%11111011  ; Set A register direction: Rest of port is input
     sta DRA
     lda #$02       ; Set bit 1 of DDRA for serial TX (Output)
     sta DDRA
