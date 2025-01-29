@@ -224,6 +224,7 @@ clearzp:
     sta DDRB
 
     lda #%11111011  ; Set A register default - 
+    
     sta DRA
     lda #$02       ; Set bit 1 of DDRA for serial TX (Output)
     sta DDRA
