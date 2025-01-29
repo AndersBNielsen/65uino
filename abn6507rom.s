@@ -5,6 +5,9 @@
 .feature org_per_seg
 .feature c_comments
 
+;assembleprogrammer = YES
+assemblelarus = 1
+
 BAUDRATE=9600 ; Max 9600
 BAUDSTEP=9600 / BAUDRATE - 1; Must be an integer
 
@@ -87,22 +90,11 @@ RES5          = 128
 userland:
 
 jsr ssd1306_clear
+print notinromstr
+print modeenabled
 
-lda #0
-sta runpnt
-sta runpnt+1
-
-lda #'$'
-jsr fastprint 
-lda runpnt
-jsr printbyte
-lda #':'
-jsr fastprint
-lda #' '
 ;Jump to selection
-
 ;jsr identifyrom
-
 ;jsr checkblank
 
 /*
@@ -213,7 +205,10 @@ reset:
     ldx #$7f   ; Load X register with 127 (stack starts from top of memory)
     txs        ; Transfer X to stack pointer
     lda #0     ; Clear accumulator
-    
+
+    bit DRB
+    bvc waithere ; Skip clearing RAM if USR btn held down during reset
+
 clearzp: 
     sta $00,x  ; Clear zero page RAM from $007F to $0000
     dex        ; Decrement counter
@@ -244,10 +239,15 @@ clearzp:
     jsr ssd1306_clear  ; Clear display
 
 ; Main routine for controlling LED and handling button press
-    jmp mainmenu ; Returns to main below
+;Fall through
+jmp mainmenu
 
 gomenu:
 jmp selectormove
+
+waithere:
+bit DRB
+bvc waithere ; Stay here until USR released
 
 main:
     bit DRB               ; Check the status of DRB (Data Register B)
@@ -451,25 +451,32 @@ jsr delay_long
 jmp more
 */
 
+.ifdef assemblelarus
 .include "flappylarus.s" ; Flappy Larus game routines
+.endif
 .include "i2c.s" ; i2c rutines specifically for the 65uino. Provides i2c_start, i2cbyteout, i2cbytein, i2c_stop - expects a few 
 .include "ssd1306.s" ; SSD1306 routines specifically for the 65uino. Provides ssd1306_init, ssd1306_clear, ssd1306_sendchar, ssd1306_setline, ssd1306_cmd, ssd1306_wstring, printbyte
-;.include "programmer.s" ; ; Relatively Universal ROM Programmer 6502 Firmware
+.ifdef assembleprogrammer 
+.include "programmer.s" ; ; Relatively Universal ROM Programmer 6502 Firmware
+.endif
 
 ready:.asciiz "Ready to load code... "
 loading:.asciiz "Loading... "
 overflow:.asciiz "OF!"
 loaded: .asciiz "Loaded "
 bytes: .asciiz " bytes of data."
+modeenabled: .asciiz " enabled. Press RST to exit."
+notinromstr: .asciiz "Code not in rom / not"
 
 welcome:
 ;.asciiz "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
 ;.word $0000
 
 flappylarusstr:     .asciiz "Flappy Larus" ;0 
-codemonstr:         .asciiz "Run Userland" ;1
-i2cscannerstr:      .asciiz "I2C Scanner" ;2
-terminalstr:        .asciiz "Terminal" ;3
+userlandstr:        .asciiz "Run Userland $0E" ;1
+codemonstr:         .asciiz "Code Monitor" ;2
+i2cscannerstr:      .asciiz "I2C Scanner" ;3
+terminalstr:        .asciiz "Terminal" ;4
 .ifdef runprogrammer
 idromstr:           .asciiz "Check ROM ID" ;4
 eraseromstr:        .asciiz "Erase ROM" ;5
@@ -483,7 +490,11 @@ lda itemsel
 beq startflappylarus
 cmp #1
 beq gouserland
+cmp #2
+beq gomon
 cmp #3
+beq notinrom ; I2C scanner not written yet
+cmp #4
 bne l477
 jsr ssd1306_clear ; Clear screen to get ready for serial data
 lda #0 
@@ -491,11 +502,11 @@ sta mode
 jmp wait
 l477:
 .ifdef runprogrammer
-cmp #4
-beq startidentifyrom
 cmp #5
-beq starteraserom
+beq startidentifyrom
 cmp #6
+beq starteraserom
+cmp #7
 beq startblankcheck
 .endif
 bne airplanemode
@@ -503,8 +514,16 @@ bne airplanemode
 gouserland:
 jmp userland
 
+gomon:
+jsr monitor
+jmp main
+
 startflappylarus:
+.ifdef flappylarus
 jsr flappylarus
+.else
+jmp notinrom
+.endif
 sec
 bcs pausehere
 
@@ -533,10 +552,18 @@ bvs actuallyhere ; Button released
 jmp main
 
 airplanemode:
+print airplanestr
+print modeenabled
 .byte $F2 ; JAM - locks up CPU, preventing more instructions from loading
+
+notinrom:
+print notinromstr
+print modeenabled
+jmp pausehere
 
 menutable:
 .word flappylarusstr
+.word userlandstr
 .word codemonstr
 .word i2cscannerstr
 .word terminalstr
@@ -680,27 +707,39 @@ ascr:
 rts
 
 mainmenu:
-itemsel = runpnt
+itemsel = txcnt
 lda #8
 sta itemsel
-jmp shortpress ; BRA
+bne shortpress ; BRA
 
 gomain:
 jmp main
 
-selectormove:
+debouncebtn:
 ;If button is pressed
 lda #$ff
 sta WTD1KDI
 waitbounce:
 lda READTDI
-beq golongpress ; Timeout
+beq btntimeout
 bit DRB
-bvs shortpress ; Button released before timeout 
+bvs short ; Button released before timeout 
 bvc waitbounce ; BRA - Loop until timer runs out.
+btntimeout:
+sec
+rts
+short:
+clc
+rts
+
+selectormove:
+jsr debouncebtn
+bcc shortpress
 
 golongpress:
 jmp longpress
+
+menuitem = rxcnt
 
 shortpress: ; Notice! Not a subroutine!
 ;Increment selection
@@ -709,27 +748,25 @@ reloop:
 ldx #0
 stx cursor
 menuloop:
-stx mode
+stx menuitem
 txa
 lsr ; Divide by two to convert pointer index to line number
 jsr ssd1306_setline
 lda #0
 jsr ssd1306_zerocolumn
-ldx mode
+ldx menuitem
 lda menutable, X ; Grab item pointer L
 bne notprinted 
 sta stringp
 lda menutable+1,X ; Grab item pointer H
 beq printedmenu
 sta stringp+1
-bne l693
+bne l693 ; BRA
 notprinted:
 sta stringp
 lda menutable+1,X ; Grab item pointer H
 sta stringp+1
 l693:
-stx mode ; Save counter value
-ldy #0
 txa 
 lsr ; Convert index counter to item number
 cmp itemsel
@@ -741,11 +778,12 @@ clc
 bcc notselected; BRA
 selected:
 lda tflags
-ora #$80 ; Invert text
+ora #$C0 ; Invert text and fast
 sta tflags
 notselected:
-jsr stringloop
-ldx mode ; Restore
+
+jsr ssd1306_wstring
+ldx menuitem ; Restore
 inx
 inx 
 bne menuloop ; BRA
@@ -761,7 +799,131 @@ lda #0
 sta itemsel
 beq reloop
 notlastitem:
-jmp main
+lda #0 
+sta mode
+jmp main ; Release control
+
+monitor:
+selectedbyte = txcnt
+lastnewpage = rxcnt
+
+jsr ssd1306_clear
+
+lda #$40
+sta tflags
+
+tya
+sta lastnewpage
+sta selectedbyte
+sta runpnt+1
+newscreen:
+sta runpnt
+
+nextline:
+jsr setcursor
+lda #'$'
+jsr ssd1306_sendchar
+lda runpnt
+jsr printbyte
+lda #':'
+jsr ssd1306_sendchar
+printram:
+inc cursor ; Space
+jsr setcursor
+jsr checkline
+lda (runpnt),Y
+pha
+lda runpnt
+cmp selectedbyte
+bne notit
+lda tflags
+ora #$C0 ; Invert
+bne it ; BRA
+notit:
+lda #$42 ; Leave selection and fast bit
+and tflags
+it:
+sta tflags
+pla
+jsr printbyte
+;;; If selected, we loop here
+lda tflags
+and #2 ; Selected flag
+beq unselect
+lda runpnt
+cmp selectedbyte
+bne afterunselect
+changevalue:
+bit DRB
+bvs changevalue ; Wait for button press
+jsr debouncebtn ; Short or long?
+bcs startover
+;Go back two cursor positions
+dec cursor
+dec cursor
+jsr setcursor
+inc stringp ; Borrow this for tmp
+lda (runpnt),Y
+adc stringp
+jsr printbyte
+jmp changevalue ; BRA
+startover:
+lda (runpnt),Y
+clc
+adc stringp
+sta (runpnt),Y
+tya ; 0
+sta stringp
+jsr ssd1306_clear
+lda lastnewpage
+jmp newscreen
+;;;
+unselect:
+lda #$40 ; Clear inversion and selection
+sta tflags
+afterunselect:
+lda runpnt
+adc #1
+sta runpnt
+and #$03
+bne printram
+lda cursor 
+bne nextline
+
+l122:
+bit DRB
+bvs l122
+
+jsr debouncebtn
+bcc nextitem
+bcs selectitem
+;Select current item
+
+nextitem:
+lda selectedbyte
+adc #1
+sta selectedbyte
+and #$1f ; Check for rollover to next page
+beq nextpage ; Selected above range, move range
+lda lastnewpage
+bcc gnewscreen ; BRA
+
+nextpage:
+lda lastnewpage
+adc #$20 ; One page+
+sta lastnewpage
+bne gnewscreen ; BRA
+
+selectitem:
+lda #2
+ora tflags
+sta tflags
+l877:
+bit DRB
+bvc l877
+gnewscreen:
+lda lastnewpage
+jmp newscreen ; BRA
 
 .segment "VECTORS6502"
 .ORG $1ffa
