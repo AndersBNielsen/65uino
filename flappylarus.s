@@ -25,38 +25,41 @@ sta obstaclecnt
 restart:
 lda #0 
 sta scroll
+lda #$40 
+ora tflags
+sta tflags
 
 lda #0
 sta cursor
 jsr setcursor
 lda #'8' ; Cloud
-jsr fastprint
+jsr ssd1306_sendchar
 lda #$11
 sta cursor
 jsr setcursor2
 lda #'8' ; Cloud
-jsr fastprint
+jsr ssd1306_sendchar
 lda #$31
 sta cursor
 jsr setcursor2
 lda #'8' ; Cloud
-jsr fastprint
+jsr ssd1306_sendchar
 lda #$40
 sta cursor
 jsr setcursor2
 lda #'8' ; Cloud
-jsr fastprint
+jsr ssd1306_sendchar
 lda #$61
 sta cursor
 jsr setcursor2
 lda #'8' ; Cloud
-jsr fastprint
+jsr ssd1306_sendchar
 
 lda #$67
 sta cursor
 jsr setcursor
 lda #'E'
-jsr fastprint
+jsr ssd1306_sendchar
 jsr delay_long
 
 waitforflap:
@@ -89,9 +92,9 @@ bne notyet
 dec cursor
 jsr setcursor
 lda #' '
-jsr fastprint
+jsr ssd1306_sendchar
 lda #'E'
-jsr fastprint
+jsr ssd1306_sendchar
 ; Reset timer
 
 lda #GRAVITY
@@ -149,7 +152,7 @@ clearcursor:
 dec cursor
 jsr setcursor
 lda #' '
-jsr fastprint
+jsr ssd1306_sendchar
 rts
 
 checkflap:
@@ -170,7 +173,7 @@ sbc #2
 sta cursor
 jsr setcursor2
 lda #'|'
-jsr fastprint
+jsr ssd1306_sendchar
 lda #255
 sta WTD1KDI ; Gravity timer
 
@@ -255,7 +258,7 @@ sbc #17
 sta cursor
 jsr setcursor2
 lda #'E'
-jsr fastprint
+jsr ssd1306_sendchar
 jsr printscore
 
 
@@ -318,9 +321,9 @@ adc #$1c
 sta cursor
 jsr setcursor2
 lda #' '
-jsr fastprint
+jsr ssd1306_sendchar
 lda #' '
-jsr fastprint
+jsr ssd1306_sendchar
 pla 
 sta cursor
 jsr setcursor2

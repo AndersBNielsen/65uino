@@ -6,3 +6,9 @@
     ldx #>stringlabel
     jsr ssd1306_prints
 .endmacro
+
+.macro printinv stringlabel
+    ldy #<stringlabel
+    ldx #>stringlabel
+    jsr ssd1306_printsinv
+.endmacro

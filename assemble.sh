@@ -3,12 +3,11 @@
 /opt/homebrew/bin/ld65 -o build/abn6507rom.bin -C memmap.cfg "./build/abn6507rom.o" #"./build/crom.o" "./build/userland.o"
 #/opt/homebrew/bin/minipro -s -p "W27C512@DIP28" -w  build/abn6507rom.bin
 #bash Programmer/burnromwithReUnROMP.sh #Uncomment this to try to burn ROM with "Relatively Universal ROM Programmer"
-SERIAL=1 #0 to program ROM using minipro - 1 to send userland code via serial. Use send_binary to upload ROM to programmer via serial
+SERIAL=1 #0 to program ROM using firestarter - 1 to send userland code via serial. Use send_binary to upload ROM to programmer via serial
 baudrate=9600
 CHIP=w27c512
 if [[ $SERIAL -eq 0 ]]; then
-firestarter erase $CHIP
-firestarter write $CHIP build/abn6507rom.bin -b
+firestarter write $CHIP build/abn6507rom.bin
 #minipro -s -p "$CHIP" -w build/abn6507rom.bin #Note the ROM model in this line (-s ignores ROM size differs from file)
 #bash Programmer/burnromwithReUnROMP.sh #Uncomment this to try to burn ROM with "Relatively Universal ROM Programmer"
 else
