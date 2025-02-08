@@ -8,7 +8,9 @@ You can either make your own, get a PCB using the guide below or order a kit wit
 https://www.imania.dk/index.php?cPath=204&sort=5a&language=en
 
 
-![65uino](https://cdn.hackaday.io/images/8644651680943366680.jpeg)
+![65uino Revision 1](images/65uinoRev1Populated.jpeg)
+
+![65uino Revision 1 Features](images/65uino-rev1-overview.jpeg)
 
 In this repository you will find KiCAD hardware files, gerbers and 6502 ASM source files for the 65uino.
 The 65uino is based on the Single Breadboard Computer - https://youtu.be/s3t2QMukBRs
@@ -23,13 +25,13 @@ Run assemble.sh to assemble the source file
 
 The hardware schematic was created using KiCAD 6
 
-Be sure to check the complete getting started guide in the docs folder. 
+Be sure to check the complete getting started guide in the [docs folder](docs/getting-started/README.md)
 
 ## Getting a PCB
 This project is kindly sponsored by JLCPCB. They offer cheap, professional looking PCBs and super fast delivery.
 
 Step 1: Get the gerber file zip package from the /hardware folder
-[hardware/65uinogerbers20231023-nomousebites.zip](https://github.com/AndersBNielsen/65uino/blob/main/hardware/65uinogerbers20231023-nomousebites.zip) for instance.
+[hardware/Rev1/65uino-Rev1-gerbers.zip](hardware/Rev1/65uino-Rev1-gerbers.zip) for instance.
 
 Step 2: Upload to JLCPCB [https://jlcpcb.com/?from=Anders_N](https://jlcpcb.com/?from=Anders_N)
 

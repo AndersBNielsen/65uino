@@ -93,6 +93,10 @@ jsr ssd1306_clear
 print notinromstr
 print modeenabled
 
+;lda #0
+;sta xtmp
+;jmp stepperdriver
+
 ;Jump to selection
 ;jsr identifyrom
 ;jsr checkblank
@@ -409,8 +413,8 @@ jsr serial_tx
 gowait:
 jmp wait
 
-/*
 stepperdriver:
+lda #10
 sta mode
 lda #$0C ; Set bits 2 and 3 as outputs
 sta DDRA
@@ -433,16 +437,16 @@ lda #0
 sta xtmp
 
 no_change:
-ldx #1
+ldx #20
 spin:
 lda xtmp     ; Load the direction from xtmp
 ora #$04     ; Combine with step (bit 2)
 sta DRA      ; Write to DRA (step + direction)
-lda #61      ; 500uS delay
+lda #15      ; 500uS delay
 jsr delay_short
 lda xtmp     ; Load direction again (to clear step while keeping direction)
 sta DRA      ; Clear step (only direction bit remains)
-lda #61
+lda #10
 jsr delay_short
 dex
 bne spin
@@ -450,7 +454,7 @@ bne spin
 lda mode
 jsr delay_long
 jmp more
-*/
+
 
 .ifdef assemblelarus
 .include "flappylarus.s" ; Flappy Larus game routines
@@ -484,6 +488,7 @@ eraseromstr:        .asciiz "Erase ROM" ;5
 blankcheckromstr:   .asciiz "Blank check IC" ;6
 .endif
 airplanestr:        .asciiz "Airplane mode" ;7
+stepperstr:         .asciiz "Stepper motor ctrl"
 
 longpress:
 jsr ssd1306_clear
@@ -510,7 +515,10 @@ beq starteraserom
 cmp #7
 beq startblankcheck
 .endif
-bne airplanemode
+cmp #8
+beq airplanemode
+cmp #9 
+jmp stepperdriver
 
 gouserland:
 jmp userland
@@ -574,6 +582,7 @@ menutable:
 .word blankcheckromstr
 .endif
 .word airplanestr
+.word stepperstr
 .word $0000
 
 wait_getserial:

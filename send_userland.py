@@ -9,7 +9,7 @@ def send_file(serial_port, baud_rate, file_path):
         ser = serial.Serial(serial_port, baud_rate, timeout=0)
 
         # 65uino Rev 1 delay
-        time.sleep(1);
+        time.sleep(2);
         
         # Send Start of Header (SOH) byte (hex 0x01)
         ser.write(b'\x01')
@@ -18,7 +18,7 @@ def send_file(serial_port, baud_rate, file_path):
             file_data = file.read()
 
         # Wait for 65uino to get ready for data
-        time.sleep(0.2)
+        time.sleep(0.5)
 
         ser.write(file_data)
 
