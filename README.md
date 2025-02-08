@@ -19,11 +19,11 @@ You'll find more details at https://hackaday.io/project/190260-65uino
 
 Prerequisites:
 
-Install cc65 (and minipro if using a tl866II+ to program a ROM) using your favorite package manager
+Install cc65 (and minipro if using a tl866II+ to program a ROM - or, even better, check out the [Relatively Universal ROM Programmer](https://github.com/AndersBNielsen/Relatively-Universal-ROM-Programmer)!) using your favorite package manager
 Run assemble.sh to assemble the source file
 (If you use Windows you probably want to use WSL for this^)
 
-The hardware schematic was created using KiCAD 6
+The hardware schematic was created using KiCAD 6 & KiCAD 8
 
 Be sure to check the complete getting started guide in the [docs folder](docs/getting-started/README.md)
 
