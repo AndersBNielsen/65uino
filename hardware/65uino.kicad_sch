@@ -17503,10 +17503,9 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "07cbbe3d-7748-4a6f-94d6-ad51a2c34b1e")
 		(property "Reference" "JP3"
-			(at 71.12 98.425 0)
+			(at 71.12 99.568 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -17769,10 +17768,9 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "174fd19d-f220-41d8-bdbb-97603e45da56")
 		(property "Reference" "JP4"
-			(at 71.12 93.345 0)
+			(at 71.12 94.742 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -20783,10 +20781,9 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "6b1b1ff3-e1eb-4175-bb0f-effcd736a65b")
 		(property "Reference" "JP5"
-			(at 71.12 88.265 0)
+			(at 71.12 89.154 0)
 			(effects
 				(font
 					(size 1.27 1.27)
