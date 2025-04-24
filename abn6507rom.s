@@ -1,4 +1,4 @@
-; Written by Anders Nielsen, 2023-2024
+; Written by Anders Nielsen, 2023-2025
 ; License: https://creativecommons.org/licenses/by-nc/4.0/legalcode
 
 .feature string_escapes ; Allow c-style string escapes when using ca65
@@ -8,7 +8,7 @@
 ;assembleprogrammer = YES
 assemblelarus = 1
 
-BAUDRATE=9600 ; Max 9600
+BAUDRATE=4800 ; Max 9600 - 4800 leaves room to do stuff without framing errors
 BAUDSTEP=9600 / BAUDRATE - 1; Must be an integer
 
 RIOT = $80
@@ -65,7 +65,7 @@ txcnt:    .res 1 ; Reserve 1 byte for txcnt
 runpnt:   .res 2 ; Reserve 2 bytes for runpnt
 cursor:   .res 1 ; Reserve 1 byte for cursor ; SSD1306
 scroll:   .res 1 ; Reserve 1 byte for scroll ; SSD1306
-tflags:   .res 1 ; Reserve 1 byte for tflags ; SSD1306
+tflags:   .res 1 ; Reserve 1 byte for tflags ; Bit usage: 0=reserved, 1=monitor byte selected, 3=i2c ack(0)/nack(1), 4=monitor h/l nibble select, 6=fast text mode, 7=invert text; others reserved.
 serialbuf: .res 0 ; Reserve 1 byte for serialbuf - Used for text display and userland program storage
 
 timer2  = stringp ; We're not going to be printing strings while waiting for timer2
@@ -74,6 +74,8 @@ buffer_length = cursor ; This is fine... Maybe
 romaddr = runpnt
 fifobufferpnt = rxcnt ; Means it'll be overwritten when we receive a command.
 longdelay = txcnt
+
+scan_addr = inb ; We don't need incoming byte while scanning i2c
 
 ;ROM profile definition
 VPP_PIN_MSK   = 1 ; 0 == OE/VPP, 1 == Pin 1
@@ -89,9 +91,26 @@ RES5          = 128
 .org $0e ; Just to make listing.txt match
 userland:
 
-jsr ssd1306_clear
-print notinromstr
-print modeenabled
+;Read i2c ROM at address 0x50 and dump it as ascii via serial
+lda #$50          ; Load the I2C address of the ROM (0x50)
+sta I2CADDR       ; Store it in the I2CADDR variable
+jsr i2c_start     ; Start the I2C communication
+;Send address  
+lda #$00          ; Load the address to read from (0x00)
+jsr i2cbyteout   ; Send the address to the ROM
+
+receiveloop:
+;Read data
+jsr i2cbytein    ; Read the data from the ROM
+lda inb          ; Load the received data into the accumulator
+;Convert to ASCII
+jsr hextoa        ; Convert the data to ASCII
+;Send data via serial
+jsr serial_tx     ; Send the data via serial
+jmp receiveloop ; Loop back to receive the next byte
+
+;print notinromstr
+;print modeenabled
 
 ;lda #0
 ;sta xtmp
@@ -100,92 +119,6 @@ print modeenabled
 ;Jump to selection
 ;jsr identifyrom
 ;jsr checkblank
-
-/*
-; This snippet just twiddles LED's
-; Set DDRA to $FF to configure port A as output
-lda #$FF
-sta DDRA
-
-; Initialize stringp to 1 to represent the pattern of LED lights
-lda #1
-sta stringp
-
-; Loop to continuously twiddle the LED pattern
-twiddle:
-    ; Rotate left the LED pattern stored in stringp
-    lda stringp
-    rol
-    sta stringp
-
-    ; Activate the LEDs according to the pattern
-    jsr latchctrl       ; Control the LEDs connected to the control register
-    lda stringp
-    jsr latchmsb       ; Control the LEDs connected to the MSB register
-    lda stringp
-    jsr latchlsb       ; Control the LEDs connected to the LSB register
-
-    ; Introduce a delay to slow down the LED pattern change
-    jsr delay_long
-    jsr delay_long
-
-    ; Jump back to the beginning of the loop
-    jmp twiddle
- */
-
-;This snippet will clone what's on the internal ROM to a w27c512 in less than two seconds
-;jsr clonetow27c512 ; Clone and verify (print to SSD1306)
-;jmp halt 
-
-;This snippit checks if ROM is identical to ROM in programmer
-/*
-lda #%01000000 ; Indicator 
-jsr latchctrl
-print verifying
-jsr clonecheck ; Verify
-
-lda #%01000000
-jsr latchctrl
-
-;print romnotblankstr
-lda #'$'
-jsr ssd1306_sendchar
-
-lda romaddr+1
-jsr printbyte ; Print address of first mismatch ($1000 if OK)
-lda romaddr
-jsr printbyte
-print bytesverifiedstr
-jmp halt ; Back to main
-*/
-
-/*
-lda #$FA
-ldy #10
-ldx #0
-jsr writerom
-*/
-
-; This snippet programs ROM contents to a 2732 ROM (if VPE is jumpered correctly on the back of the board and VPE calibrated to 21V )
-/*print cloning
-
-lda #50
-sta longdelay ; Must be initialized to either 0 for 100us ROMs or number of ms for slow programming Roms
-
-LDA #BITMASK_REG_DISABLE | BITMASK_P1_VPP_ENABLE
-JSR latchctrl  ; Latch the updated control signals
-
-;Let's make absolutely sure the regulator is stable 
-lda #$ff 
-sta DDRA
-jsr delay_long ; ~256ms
-lda #$ff 
-jsr delay_long ; ~256ms
-lda #$ff 
-jsr delay_long ; ~256ms
-
-;jsr clonerom2 ; Write 65uino ROM
-*/
 
 halt:
 lda #$02 ; Bit 1 is serial TX (Output)
@@ -472,6 +405,7 @@ loaded: .asciiz "Loaded "
 bytes: .asciiz " bytes of data."
 modeenabled: .asciiz " enabled. Press RST to exit."
 notinromstr: .asciiz "Code not in rom / not"
+scanning: .asciiz "Scanning i2c busFound: "
 
 welcome:
 ;.asciiz "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
@@ -488,7 +422,7 @@ eraseromstr:        .asciiz "Erase ROM" ;5
 blankcheckromstr:   .asciiz "Blank check IC" ;6
 .endif
 airplanestr:        .asciiz "Airplane mode" ;7
-stepperstr:         .asciiz "Stepper motor ctrl"
+stepperstr:         .asciiz "St. motor ctrl"
 
 longpress:
 jsr ssd1306_clear
@@ -499,7 +433,7 @@ beq gouserland
 cmp #2
 beq gomon
 cmp #3
-beq notinrom ; I2C scanner not written yet
+beq i2cscan ; I2C scanner
 cmp #4
 bne l477
 jsr ssd1306_clear ; Clear screen to get ready for serial data
@@ -564,6 +498,12 @@ airplanemode:
 print airplanestr
 print modeenabled
 .byte $F2 ; JAM - locks up CPU, preventing more instructions from loading
+
+i2cscan:
+jsr ssd1306_clear
+print scanning
+jsr i2c_scan
+jmp main
 
 notinrom:
 print notinromstr
@@ -757,6 +697,7 @@ inc itemsel
 reloop:
 ldx #0
 stx cursor
+jsr setcursor
 menuloop:
 stx menuitem
 txa
@@ -791,8 +732,8 @@ lda tflags
 ora #$C0 ; Invert text and fast
 sta tflags
 notselected:
-
-jsr ssd1306_wstring
+; Save x?
+jsr ssd1306_wstring ; Destroys X
 ldx menuitem ; Restore
 inx
 inx 
@@ -819,13 +760,15 @@ lastnewpage = rxcnt
 
 jsr ssd1306_clear
 
-lda #$40
+lda #$40 ; Fast
 sta tflags
 
 tya
 sta lastnewpage
 sta selectedbyte
 sta runpnt+1
+sta stringp
+sta stringp+1
 newscreen:
 sta runpnt
 
@@ -847,7 +790,7 @@ lda runpnt
 cmp selectedbyte
 bne notit
 lda tflags
-ora #$C0 ; Invert
+ora #$C0 ; Invert and fast
 bne it ; BRA
 notit:
 lda #$42 ; Leave selection and fast bit
@@ -867,38 +810,70 @@ changevalue:
 bit DRB
 bvs changevalue ; Wait for button press
 jsr debouncebtn ; Short or long?
-bcs startover
+bcs startover ; Long press, deselect or next nibble
+
 ;Go back two cursor positions
 dec cursor
 dec cursor
 jsr setcursor
-inc stringp ; Borrow this for tmp
-lda (runpnt),Y
-adc stringp
+
+lda tflags
+and #$10 ; Check nibble flag (high nibble if set, low nibble if clear)
+beq lownibble ; Branch to low nibble increment
+
+; High nibble increment
+lda stringp+1 
+clc
+adc #$10 ; Increment high nibble
+sta stringp+1 ; Save offset
+clc ; Ignore carry
+adc (runpnt),y ; Add the current value
+adc stringp ; Add the lower nibble
+jmp nibbled ; Skip low nibble increment
+
+lownibble:
+lda stringp
+clc
+adc #1 ; Increment low nibble
+and #$0F ; Mask out the high nibble
+sta stringp
+adc (runpnt),Y ; Add the incremented value to the low nibble
+
+nibbled:
 jsr printbyte
 jmp changevalue ; BRA
 startover:
-lda (runpnt),Y
+lda tflags ; Check nibble flag
+and #$10 ; Set = high nibble
+bne savebyte
+lda tflags
+ora #$10 ; Set high nibble
+sta tflags
+l850:
+bit DRB
+bvc l850 ; Wait for button release
+bne changevalue ; BRA
+savebyte:
+lda stringp+1 ; Load high nibble
 clc
-adc stringp
+adc (runpnt),Y ; Load previous value
+adc stringp ; Add low nibble - this might add to high nibble :/ 
 sta (runpnt),Y
-tya ; 0
-sta stringp
 jsr ssd1306_clear
 lda lastnewpage
 jmp newscreen
 ;;;
 unselect:
-lda #$40 ; Clear inversion and selection
+lda #$40 ; Clear nibble select, inversion and selection
 sta tflags
 afterunselect:
-lda runpnt
+lda runpnt ; Increment pointer
 adc #1
 sta runpnt
-and #$03
-bne printram
+and #$03   ; Check for newline
+bne goprintram
 lda cursor 
-bne nextline
+bne gonextline
 
 l122:
 bit DRB
@@ -908,6 +883,12 @@ jsr debouncebtn
 bcc nextitem
 bcs selectitem
 ;Select current item
+
+goprintram:
+jmp printram ; BRA
+
+gonextline:
+jmp nextline
 
 nextitem:
 lda selectedbyte
@@ -925,6 +906,9 @@ sta lastnewpage
 bne gnewscreen ; BRA
 
 selectitem:
+tya ; Assume 0
+sta stringp ; Clear nibble offsets
+sta stringp+1
 lda #2
 ora tflags
 sta tflags
