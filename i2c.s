@@ -1,4 +1,4 @@
-; Written by Anders Nielsen, 2023-2024
+; Written by Anders Nielsen, 2023-2025
 ; License: https://creativecommons.org/licenses/by-nc/4.0/legalcode
 
 SCL     = 1 ; DRB0 bitmask
@@ -93,12 +93,26 @@ i2cbyteinloop:
   dex
   bne i2cbyteinloop
 
-  lda DDRB ; Send NACK == SDA high (only single bytes for now)
+  lda tflags  ; Check the ACK/NACK flag in tflags
+  and #$08    ; Mask to isolate the ACK/NACK bit
+  beq send_ack  ; If the bit is 0, send ACK
+
+  ; Send NACK == SDA high
+  lda DDRB
   and #SDA_INV
   sta DDRB
-  dec DDRB ; SCL HIGH
-  inc DDRB ; SCL LOW
-rts
+  bne finish_bit
+
+send_ack:
+  ; Send ACK == SDA low
+  lda DDRB
+  ora #SDA
+  sta DDRB
+
+finish_bit:
+  dec DDRB  ; SCL HIGH
+  inc DDRB  ; SCL LOW
+  rts
 
 i2c_stop:
   lda DDRB ; SDA low
@@ -109,3 +123,72 @@ i2c_stop:
   and #SDA_INV
   sta DDRB
   rts
+
+i2c_scan:
+    lda #$08  ; Start scanning from address 0x08
+    sta scan_addr
+
+i2c_scan_loop:
+    clc  ; Clear carry to indicate WRITE (RW = 0)
+    lda scan_addr
+    sta I2CADDR  ; Set the I2C address to test
+    jsr i2c_start  ; Send start condition with address
+    bcs no_ack  ; If carry is set, no ACK received, skip
+
+    lda #$3C  ; Load the print address
+    sta I2CADDR  ; Set I2CADDR to 0x3C before printing
+    lda scan_addr  ; Load detected address
+    jsr printbyte  ; Print found device
+    lda #' '
+    jsr ssd1306_sendchar
+
+no_ack:
+    inc scan_addr  ; Move to the next address
+    lda scan_addr
+    cmp #$78  ; Stop at 0x77
+    bne i2c_scan_loop
+    rts
+
+; Input: A = register address to read
+; I2CADDR must be set
+i2c_read_reg:
+    pha              ; Save register address
+    ; === Send register address (write) ===
+    clc
+    jsr i2c_start
+
+    pla 
+    sta outb             ; Store register address in outb
+    jsr i2cbyteout
+    jsr i2c_stop
+
+    ; === Read from register ===
+    sec
+    jsr i2c_start
+
+    lda tflags
+    ora #$08       ; Set bit 3 = send NACK
+    sta tflags
+    jsr i2cbytein         ; Result in 'inb'
+
+    jsr i2c_stop
+    rts
+
+;Assumes I2CADDR is set to the device address
+;Assumes reg is in A, val in Y
+i2c_write_register:
+    pha               ; Save register address
+    clc
+    jsr i2c_start     ; send start + address
+
+    pla               ; Restore register address
+    sta outb
+    jsr i2cbyteout    ; send register address
+
+    tya               ; value to write
+    sta outb
+    jsr i2cbyteout    ; send value
+
+    jsr i2c_stop      ; finish transmission
+    rts
+
