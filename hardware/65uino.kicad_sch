@@ -22790,7 +22790,7 @@
 		(dnp no)
 		(uuid "92e4cb85-996f-42a5-922d-36970a4ad144")
 		(property "Reference" "JP10"
-			(at 127 174.752 0)
+			(at 127 173.99 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -23560,10 +23560,10 @@
 			)
 		)
 		(property "Value" "22k"
-			(at 137.16 174.752 90)
+			(at 137.16 175.26 90)
 			(effects
 				(font
-					(size 1.27 1.27)
+					(size 0.8 0.8)
 				)
 			)
 		)
@@ -27488,7 +27488,7 @@
 			)
 		)
 		(property "Value" "+5V"
-			(at 125.095 173.355 0)
+			(at 119.126 167.894 0)
 			(effects
 				(font
 					(size 1.27 1.27)

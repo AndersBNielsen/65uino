@@ -7,6 +7,7 @@
 
 ;assembleprogrammer = YES
 assemblelarus = 1
+assemblesdr = 1
 
 BAUDRATE=4800 ; Max 9600 - 4800 leaves room to do stuff without framing errors
 BAUDSTEP=9600 / BAUDRATE - 1; Must be an integer
@@ -91,23 +92,132 @@ RES5          = 128
 .org $0e ; Just to make listing.txt match
 userland:
 
-;Read i2c ROM at address 0x50 and dump it as ascii via serial
-lda #$50          ; Load the I2C address of the ROM (0x50)
-sta I2CADDR       ; Store it in the I2CADDR variable
-jsr i2c_start     ; Start the I2C communication
-;Send address  
-lda #$00          ; Load the address to read from (0x00)
-jsr i2cbyteout   ; Send the address to the ROM
+jsr setup_si5351   ; Initialize Si5351
 
-receiveloop:
-;Read data
-jsr i2cbytein    ; Read the data from the ROM
-lda inb          ; Load the received data into the accumulator
-;Convert to ASCII
-jsr hextoa        ; Convert the data to ASCII
-;Send data via serial
-jsr serial_tx     ; Send the data via serial
-jmp receiveloop ; Loop back to receive the next byte
+; Disable outputs
+lda #3 
+ldy #$ff    
+jsr i2c_write_register
+
+;jsr validate_si5351_init
+;
+;  lda #44
+;  jsr read_i2c_reg
+;  lda inb
+;  jsr serialbyte ; See what comes back
+; lda #$60
+; sta I2CADDR
+
+; lda #16
+; ldy #$0F
+; jsr i2c_write_register
+
+lda #45
+ldy #30
+jsr i2c_write_register
+
+lda #53
+ldy #30
+jsr i2c_write_register
+
+ lda #166
+ ldy #64
+ jsr i2c_write_register
+
+    lda #29
+    ldy #12
+    jsr i2c_write_register
+
+
+
+; Reset PLLs
+  lda #177
+  ldy #$AC
+  jsr i2c_write_register
+
+
+; Enable available outputs
+lda #3 
+ldy #$f8
+jsr i2c_write_register
+
+here:
+jmp here
+
+; val = runpnt
+; reg = runpnt+1
+
+;  validate_si5351_init:
+;     lda #<si5351_init_data
+;     sta ptr
+;     lda #>si5351_init_data
+;     sta ptr+1
+
+;     validate_next:
+;     ldy #0
+;     lda (ptr),y
+;     cmp #$FF
+;     beq done
+;     sta reg
+;     jsr serialbyte        ; Print register address
+
+;     iny
+;     lda (ptr),y
+;     sta val
+
+;     lda reg
+;     jsr read_i2c_reg      ; read register value into inb
+
+;     lda inb
+;     cmp val
+;     beq ok                ; Skip print if matched
+
+;    ; lda #' '
+;     jsr serial_tx
+
+;     lda val
+;     jsr serialbyte
+
+;     ;lda #' '
+;     jsr serial_tx
+
+;     lda inb
+;     jsr serialbyte
+
+; ok:
+;     lda #$0A
+;     jsr serial_tx
+
+;     clc
+;     lda ptr
+;     adc #2
+;     sta ptr
+;     lda ptr+1
+;     adc #0
+;     sta ptr+1
+
+;     jmp validate_next
+
+; done:
+;     rts
+
+; ;Read i2c ROM at address 0x50 and dump it as ascii via serial
+; lda #$50          ; Load the I2C address of the ROM (0x50)
+; sta I2CADDR       ; Store it in the I2CADDR variable
+; jsr i2c_start     ; Start the I2C communication
+; ;Send address  
+; lda #$00          ; Load the address to read from (0x00)
+; jsr i2cbyteout   ; Send the address to the ROM
+
+; receiveloop:
+; ;Read data
+; jsr i2cbytein    ; Read the data from the ROM
+; lda inb          ; Load the received data into the accumulator
+; ;Convert to ASCII
+; jsr hextoa        ; Convert the data to ASCII
+; ;Send data via serial
+; jsr serial_tx     ; Send the data via serial
+; jmp receiveloop ; Loop back to receive the next byte
 
 ;print notinromstr
 ;print modeenabled
@@ -120,14 +230,45 @@ jmp receiveloop ; Loop back to receive the next byte
 ;jsr identifyrom
 ;jsr checkblank
 
+; Below should be placed in the zero page
+; Inputs
+; freq0:        .res 1   ; Frequency LSB
+; freq1:        .res 1
+; freq2:        .res 1
+; freq3:        .res 1   ; Frequency MSB
+
+; ; Internal
+; dividend0:    .res 1   ; 750_750_751 (LSB first)
+; dividend1:    .res 1
+; dividend2:    .res 1
+; dividend3:    .res 1
+
+; quotient0:    .res 1   ; Output: quotient (LSB first)
+; quotient1:    .res 1
+; quotient2:    .res 1
+; quotient3:    .res 1
+
+; remainder0:   .res 1
+; remainder1:   .res 1
+; remainder2:   .res 1
+; remainder3:   .res 1
+
+; temp0:        .res 1
+; temp1:        .res 1
+; temp2:        .res 1
+; temp3:        .res 1
+
+; phase_lo:     .res 1
+; phase_hi:     .res 1
+
 halt:
-lda #$02 ; Bit 1 is serial TX (Output)
-sta DDRA
+;lda #$02 ; Bit 1 is serial TX (Output)
+;sta DDRA
 ;sty mode
-jmp main ; Get ready for new code
+;jmp main ; Get ready for new code
 
 fifobuffer:
-.res 4
+;.res 4
 
 .segment "RODATA"
 .org $1000  ; Start address for code (for clarity, not strictly needed)
@@ -398,6 +539,10 @@ jmp more
 .include "programmer.s" ; ; Relatively Universal ROM Programmer 6502 Firmware
 .endif
 
+.ifdef assemblesdr
+.include "si5351.s" ; Si5351 routines specifically for the 65uino. Provides si5351_init, si5351_set_freq, si5351_set_phase
+.endif
+
 ready:.asciiz "Ready to load code... "
 loading:.asciiz "Loading... "
 overflow:.asciiz "OF!"
@@ -630,6 +775,17 @@ iny
 bne txstringloop
 stringtxd:
 rts ; In case of overflow
+
+serialbyte:
+    pha ; Save A
+    jsr bytetoa
+    pha
+    lda xtmp
+    jsr serial_tx
+    pla
+    jsr serial_tx
+    pla ; Restore A
+rts
 
 bytetoa: ;This SR puts LSB in A and MSB in HXH - as ascii using hextoa.
 pha

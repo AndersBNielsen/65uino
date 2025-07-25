@@ -148,3 +148,47 @@ no_ack:
     cmp #$78  ; Stop at 0x77
     bne i2c_scan_loop
     rts
+
+; Input: A = register address to read
+; I2CADDR must be set
+i2c_read_reg:
+    pha              ; Save register address
+    ; === Send register address (write) ===
+    clc
+    jsr i2c_start
+
+    pla 
+    sta outb             ; Store register address in outb
+    jsr i2cbyteout
+    jsr i2c_stop
+
+    ; === Read from register ===
+    sec
+    jsr i2c_start
+
+    lda tflags
+    ora #$08       ; Set bit 3 = send NACK
+    sta tflags
+    jsr i2cbytein         ; Result in 'inb'
+
+    jsr i2c_stop
+    rts
+
+;Assumes I2CADDR is set to the device address
+;Assumes reg is in A, val in Y
+i2c_write_register:
+    pha               ; Save register address
+    clc
+    jsr i2c_start     ; send start + address
+
+    pla               ; Restore register address
+    sta outb
+    jsr i2cbyteout    ; send register address
+
+    tya               ; value to write
+    sta outb
+    jsr i2cbyteout    ; send value
+
+    jsr i2c_stop      ; finish transmission
+    rts
+
