@@ -6,7 +6,7 @@
 .feature c_comments
 
 ;assembleprogrammer = YES
-assemblelarus = 1
+;assemblelarus = 1
 assemblesdr = 1
 
 BAUDRATE=4800 ; Max 9600 - 4800 leaves room to do stuff without framing errors
@@ -77,6 +77,14 @@ fifobufferpnt = rxcnt ; Means it'll be overwritten when we receive a command.
 longdelay = txcnt
 
 scan_addr = inb ; We don't need incoming byte while scanning i2c
+
+ptr   = stringp     ; zero-page 16-bit pointer (not conflicting with outb or I2CADDR since we're not printing strings while changing clocks)    
+
+; Zero-page aliases / scratch
+countandclock = rxcnt   ; Working copy of DRA bits used to control clock + bank select
+bankcount    = txcnt       ; Bank counter (0..3) reused inb ZP as simple counter
+
+itemsel = txcnt
 
 ;ROM profile definition
 VPP_PIN_MSK   = 1 ; 0 == OE/VPP, 1 == Pin 1
@@ -380,6 +388,7 @@ jmp more
 
 .ifdef assemblesdr
 .include "si5351.s" ; Si5351 routines specifically for the 65uino. Provides si5351_init, si5351_set_freq, si5351_set_phase
+.include "sdr.s" ; SDR routines specifically for the 65uino. Provides ADC read, dump from RAM to serial
 .endif
 
 ready:.asciiz "Ready to load code... "
@@ -652,7 +661,6 @@ ascr:
 rts
 
 mainmenu:
-itemsel = txcnt
 lda #8
 sta itemsel
 bne shortpress ; BRA

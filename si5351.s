@@ -160,8 +160,6 @@ update_leds:
   sta DRA            ; Write to port
   rts
 
-ptr     = stringp     ; zero-page 16-bit pointer (not conflicting with outb or I2CADDR since we're not printing strings while changing clocks)
-
 setup_si5351:
     lda #<si5351_init_data
     sta ptr

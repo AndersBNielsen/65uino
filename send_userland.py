@@ -25,14 +25,63 @@ def send_file_and_listen(serial_port, baud_rate, file_path):
 
         print("File sent successfully. Listening for output...\nPress Ctrl+C to exit.\n")
 
-        # Now continuously listen for incoming data
-        while True:
-            if ser.in_waiting:
-                output = ser.read(ser.in_waiting).decode(errors='replace')
-                if output:
-                    print(output, end='', flush=True)
-            else:
-                time.sleep(0.1)
+        # Open a file to save incoming binary data and also accumulate chunks
+        with open("received_output.bin", "ab") as output_file:
+            chunk_buf = bytearray()
+            chunk_count = 0
+            CHUNK_SIZE = 4096  # bytes before invoking analyzer
+            CHUNK_TIMEOUT = 0.1  # seconds to wait before flushing partial chunk
+            last_data_time = time.time()
+
+            # Now continuously listen for incoming data
+            while True:
+                if ser.in_waiting:
+                    data = ser.read(ser.in_waiting)
+                    if data:
+                        output_file.write(data)
+                        output_file.flush()
+
+                        chunk_buf.extend(data)
+                        last_data_time = time.time()
+
+                        # If we've reached (or exceeded) chunk size, write and analyze
+                        while len(chunk_buf) >= CHUNK_SIZE:
+                            to_write = bytes(chunk_buf[:CHUNK_SIZE])
+                            # Save chunk to a numbered file
+                            chunk_filename = f"received_chunk_{chunk_count}.bin"
+                            with open(chunk_filename, 'wb') as cf:
+                                cf.write(to_write)
+                            # Call analyzer on this chunk (non-blocking stdout/stderr passthru)
+                            try:
+                                import subprocess, sys as _sys
+                                _sys.stdout.write(f"\n[Analyzer] Processing {chunk_filename}\n")
+                                _sys.stdout.flush()
+                                subprocess.run([_sys.executable, 'tools/analyze_adc.py', '--file', chunk_filename, '--iq', '--sample-rate', '27000', '--peaks', '5'], check=False)
+                            except Exception as e:
+                                print(f"Analyzer call failed: {e}", file=sys.stderr)
+                            # remove written bytes from buffer
+                            del chunk_buf[:CHUNK_SIZE]
+                            chunk_count += 1
+                else:
+                    # If no data for a short while, flush a partial chunk
+                    now = time.time()
+                    if chunk_buf and (now - last_data_time) >= CHUNK_TIMEOUT:
+                        # flush what's available (even if smaller than CHUNK_SIZE)
+                        to_write = bytes(chunk_buf)
+                        chunk_filename = f"received_chunk_{chunk_count}.bin"
+                        with open(chunk_filename, 'wb') as cf:
+                            cf.write(to_write)
+                        try:
+                            import subprocess, sys as _sys
+                            _sys.stdout.write(f"\n[Analyzer] Processing {chunk_filename} (partial {len(to_write)} bytes)\n")
+                            _sys.stdout.flush()
+                            subprocess.run([_sys.executable, 'tools/analyze_adc.py', '--file', chunk_filename, '--iq', '--sample-rate', '27000', '--peaks', '5'], check=False)
+                        except Exception as e:
+                            print(f"Analyzer call failed: {e}", file=sys.stderr)
+                        chunk_count += 1
+                        chunk_buf.clear()
+                    else:
+                        time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("\nInterrupted by user. Exiting.")
