@@ -141,6 +141,7 @@ clearzp:
     lda #244
     jsr delay_long   ; Delay for a short time
 
+.ifdef assemblesdr
     lda DRB
     and #BTN_DRB3
     beq wait ; If BTN pressed, continue to check serial
@@ -148,8 +149,9 @@ clearzp:
     sta I2CADDR
     jsr i2c_start
     bcs normalboot ; If PhaseLoom is not present, continue to normal boot
-    jmp setup_sdr_mode ; If PhaseLoom is present, initialize it
 
+    jmp setup_sdr_mode ; If PhaseLoom is present, initialize it
+.endif
 normalboot:    ; Initialize SSD1306 display
     lda #$3C      ; Address of the device (78 on the back of the module is 3C << 1)
     sta I2CADDR
@@ -404,7 +406,9 @@ welcome:
 ;.asciiz "Hi!             I'm the 65uino! I'm a 6502 baseddev board. Come learn everything about me!"
 ;.word $0000
 
+.ifdef assemblelarus
 flappylarusstr:     .asciiz "Flappy Larus" ;0 
+.endif
 userlandstr:        .asciiz "Run Userland $0E" ;1
 codemonstr:         .asciiz "Code Monitor" ;2
 i2cscannerstr:      .asciiz "I2C Scanner" ;3
@@ -504,7 +508,9 @@ print modeenabled
 jmp pausehere
 
 menutable:
+.ifdef assemblelarus
 .word flappylarusstr
+.endif
 .word userlandstr
 .word codemonstr
 .word i2cscannerstr

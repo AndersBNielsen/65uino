@@ -73,9 +73,6 @@ adcdone:
 	lda #2 
 	sta DRA            ; Turn off clock, Serial TX high
 
-	; Tone detection stub callable after capture
-	jsr detect_tone
-
 rts
 
 ; ---------------------------------------------
@@ -84,6 +81,12 @@ rts
 ; Mirrors the traversal used in readadc.
 ; ---------------------------------------------
 ramout:
+lda #$A5
+jsr serial_tx
+lda #$A5
+jsr serial_tx
+
+ramoutnopre:
 ; External RAM at $0800
 lda #8
 sta ptr+1
@@ -111,80 +114,81 @@ asl
 asl
 ora #2
 sta DRA            ; Switch bank
-bne ramout ; BRA
+bne ramoutnopre ; BRA
 ramoutdone:
 rts
 
-; ---------------------------------------------
-; Tone detection stub (kept in ROM; no segment changes)
-; ---------------------------------------------
-.segment "WORKSPACE"
-; Zero-page workspace for tone detection (fits within $50-$7F window)
-td_s_prev_lo: .res 1
-td_s_prev_hi: .res 1
-td_s_prev2_lo: .res 1
-td_s_prev2_hi: .res 1
-td_power_lo: .res 1
-td_power_hi: .res 1
-td_coeff_lo: .res 1
-td_coeff_hi: .res 1
-td_tmp_lo: .res 1
-td_tmp_hi: .res 1
-td_sample: .res 1
-td_max_bin: .res 1
-td_prod_lo: .res 1
-td_prod_hi: .res 1
-td_a:       .res 1
-td_b:       .res 1
-
-.segment "RODATA"
-; Coefficients: 2*cos(2*pi*k/N) in Q1.7 for N=64, k=0..7
+; Coefficients: 2*cos(2*pi*k/64) in signed Q1.8 for k = [0,3,6,8,11,14,17,20]
+; Bin centers ≈ [0, 1k, 2k, 2.8k, 3.9k, 5.0k, 6.0k, 7.1k] Hz at Fs=22.7 kHz
 coeff_lo:
-	.byte $00,$FB,$EC,$D5,$B5,$8E,$62,$32
+	.byte $00,$EA,$AA,$6A,$F1,$64,$CE,$3C
 coeff_hi:
-	.byte $02,$01,$01,$01,$01,$01,$00,$00
+	.byte $02,$01,$01,$01,$00,$00,$FF,$FF
 
-; Sine coefficients sin(2*pi*k/64) in Q1.7 for k=0..7
+; Sine coefficients not used in current detector; placeholder
 sin_lo:
-	.byte $00,$0C,$27,$49,$6E,$8F,$B3,$D0
+	.byte $00,$00,$00,$00,$00,$00,$00,$00
 sin_hi:
 	.byte $00,$00,$00,$00,$00,$00,$00,$00
 
 ; General purpose 8x8 -> 16 multiply: td_a * td_b = td_prod_hi:td_prod_lo
 .proc mul8
+	; Fast unsigned 8x8 -> 16 using shift-and-add
+	; Inputs: td_a (multiplicand), td_b (multiplier)
+	; Output: td_prod_hi:td_prod_lo
+	; Preserve X across call (used by caller for bin index)
+	txa
+	pha
 	lda #$00
 	sta td_prod_lo
 	sta td_prod_hi
-	lda td_b
-	beq mul8_done
-	tax                ; X = td_b (unsigned count)
+	ldx #$08         ; 8 bits
 mul8_loop:
+	; if (td_b & 1) prod += td_a
+	lda td_b
+	and #$01
+	beq mul8_skip_add
 	clc
 	lda td_prod_lo
-	adc td_a           ; add multiplicand each iteration
+	adc td_a
 	sta td_prod_lo
-	bcc :+
+	bcc mul8_skip_add
 	inc td_prod_hi
-:
+mul8_skip_add:
+	; shift td_a <<= 1
+	asl td_a
+	; shift td_b >>= 1
+	lsr td_b
 	dex
 	bne mul8_loop
-mul8_done:
+	pla
+	tax
+	rts
+.endproc
+
+; ---------------------------------------------
+; Debug helpers (ROM)
+; ---------------------------------------------
+.proc dbg_putc ; safe single-char print preserving X/Y
+	; A contains the character to print; preserve X and Y without touching A
+	stx xtmp      ; save X in global ZP temp
+	sty td_b      ; save Y in workspace temp
+	jsr serial_tx ; send A
+	ldx xtmp      ; restore X
+	ldy td_b      ; restore Y
 	rts
 .endproc
 
 ; Goertzel detector: analyzes first 128 I-channel samples, 8 bins, reports max bin index
 .proc detect_tone
-	; init ptr to $0800 page
+	; init ptr to $0800 page; rely on readadcstart for bank/clock setup
 	lda #$08
 	sta ptr+1
-	lda #$00
-	sta ptr          ; ensure low byte = 0 (start of page)
-	lda #$00
-	sta td_max_bin
-	lda #$00
-	sta td_power_lo
-	sta td_power_hi
 	ldx #$00 ; bin index 0..7
+	stx ptr          ; ensure low byte = 0 (start of page)
+	stx td_max_bin ; 0
+	stx td_power_lo ; 0
+	stx td_power_hi ; 0
 bin_loop:
 	; reset states
 	lda #$00
@@ -236,20 +240,17 @@ no_ch1:
 	sta td_prod_hi
 no_ch2:
 	; arithmetic shift >>7 keeping sign from s_prev
+	; adjust for Q1.8: (coeff*s_prev) >> 8 => tmp_lo = td_prod_hi, tmp_hi = sign
 	lda td_s_prev_hi
 	and #$80
-	sta td_tmp_hi       ; sign mask
-	lda td_prod_hi
-	lsr
-	lsr
-	lsr
-	ora td_tmp_hi
+	beq :+
+	lda #$FF
+	bne :++
+:
+	lda #$00
+:+
 	sta td_tmp_hi
-	lda td_prod_lo
-	ror td_tmp_hi
-	lsr
-	lsr
-	lsr
+	lda td_prod_hi
 	sta td_tmp_lo
 	; s = sample + tmp - s_prev2
 	lda td_sample
@@ -352,12 +353,35 @@ bins_done:
 negfreq:
 	lda #'-'
 printsign:
-	jsr serial_tx
-	; then print bin index
-	lda td_max_bin
-	jsr serial_tx
-	lda #$0A
-	jsr serial_tx
+	; print sign, preserving X/Y via dbg_putc
+	jsr dbg_putc
+	; then print bin index as ASCII '0'+k using direct serial_tx
+	lda td_max_bin      ; A = bin
+	jsr serialbyte
 	rts
 .endproc
 
+; ---------------------------------------------
+; Tone detection stub (kept in ROM; no segment changes)
+; ---------------------------------------------
+.segment "WORKSPACE"
+.ORG $0050
+; Zero-page workspace for tone detection (fits within $50-$7F window)
+td_s_prev_lo: .res 1
+td_s_prev_hi: .res 1
+td_s_prev2_lo: .res 1
+td_s_prev2_hi: .res 1
+td_power_lo: .res 1
+td_power_hi: .res 1
+td_coeff_lo: .res 1
+td_coeff_hi: .res 1
+td_tmp_lo: .res 1
+td_tmp_hi: .res 1
+td_sample: .res 1
+td_max_bin: .res 1
+td_prod_lo: .res 1
+td_prod_hi: .res 1
+td_a:       .res 1
+td_b:       .res 1
+
+.segment "RODATA"
