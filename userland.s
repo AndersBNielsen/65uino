@@ -13,55 +13,57 @@ lda DDRA
 ora #$80
 sta DDRA ; Clock output
 
-/*
+
 lda DRA ; Clear stale ADC data
 ora #$82
 sta DRA  ; High clock
 and #$7f
 sta DRA  ; 
-ora #$80
-sta DRA  ; High clock
-and #$7f
-sta DRA  ; 
-ora #$80
-sta DRA  ; High clock
-and #$7f
-sta DRA  ;
-*/
+;ora #$80
+;sta DRA  ; High clock
+;and #$7f
+;sta DRA  ; 
+
 jsr readadcstart
 
-;jsr ramout ; Assumes bank is 0 and serial tx is high 
+; print start marker
 
-lda #'U'
-jsr serial_tx
-jsr detect_tone
+lda #'>'
+jsr dbg_putc
 
-; Invoke the test once, then loop.
+jsr detect_tone_q14_16bit
+lda td_max_bin
 
-lda #'E'
-jsr serial_tx
+jsr printsafebyte
 lda #$0A
-jsr serial_tx
+jsr dbg_putc
+;ldx #$5A
 
-jmp userland
+	;jsr printsafebyte
+	;jsr td_init_bin_state
+;	jsr td_sample_loop
+	;jsr td_done_samples
+
+;txa
+;jsr printsafebyte
+
+; print end marker
+;jsr dbg_putc
+; Halt here so the test runs only once and we can observe output
+
+
+lda #$02
+sta DRA            ; Turn off clock, Serial TX high
+ldy #0
+jsr ramout
+
+
+; stop here after one run so serial output can be observed
+hang:
+	jmp hang
 
 ; Test mul8: multiply 6 * 7 and print 16-bit result via serial in hex.
 ; Uses ROM routines: serial_tx, serialbyte, bytetoa, hextoa
-/*
-.proc start_mul8_test
-	lda #10
-	sta td_a    ; multiplicand for ROM mul8
-	lda #30
-	sta td_b    ; multiplier for ROM mul8
-	jsr mul8    ; result in td_prod_lo/td_prod_hi
-	lda td_prod_hi
-	jsr serialbyte
-	lda td_prod_lo
-	jsr serialbyte
-	lda #$0A    ; newline
-	jsr serial_tx
-	rts
-.endproc
-*/
+; (start_mul8_test removed to fit userland)
 ; Simple 8x8->16 multiply: A=multiplicand, X=multiplier -> A=prod_lo, Y=prod_hi
 ; Using mul8 from sdr.s

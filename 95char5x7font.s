@@ -1,4 +1,5 @@
 fontc1:
+.ifndef assemblesdr
 .byte $00	;	20 	32
 .byte $00	;	21 	33 	!
 .byte $00	;	22 	34 
@@ -95,8 +96,9 @@ fontc1:
 .byte $00	;	7D	125 	}
 .byte $08	;	7E	126 	~
 .byte $08	; 7F	127
-
+.endif
 fontc2:
+.ifndef assemblesdr
 .byte $00	;	20 	32
 .byte $00	;	21 	33 	!
 .byte $07	;	22 	34 
@@ -193,8 +195,9 @@ fontc2:
 .byte $41	;	7D	125 	}
 .byte $08	;	7E	126 	~
 .byte $1C	; 7F	127
-
+.endif
 fontc3:
+.ifndef assemblesdr
 .byte $00	;	20 	32
 .byte $4F	;	21 	33 	!
 .byte $00	;	22 	34 
@@ -291,8 +294,9 @@ fontc3:
 .byte $36	;	7D	125 	}
 .byte $2A	;	7E	126 	~
 .byte $2A	; 7F	127
-
+.endif
 fontc4:
+.ifndef assemblesdr
 .byte $00	;	20 	32
 .byte $00	;	21 	33 	!
 .byte $07	;	22 	34 
@@ -389,8 +393,9 @@ fontc4:
 .byte $08	;	7D	125 	}
 .byte $1C	;	7E	126 	~
 .byte $08	; 7F	127
-
+.endif
 fontc5:
+.ifndef assemblesdr
 .byte $00	;	20 	32
 .byte $00	;	21 	33 	!
 .byte $00	;	22 	34 
@@ -487,3 +492,4 @@ fontc5:
 .byte $00	;	7D	125 	}
 .byte $08	;	7E	126 	~
 .byte $08	; 7F	127
+.endif

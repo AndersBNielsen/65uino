@@ -1,6 +1,8 @@
 import sys
 import time
 import serial
+import subprocess
+from pathlib import Path
 
 def send_file_and_listen(serial_port, baud_rate, file_path):
     try:
@@ -81,12 +83,25 @@ def send_file_and_listen(serial_port, baud_rate, file_path):
                             chunk_filename = f"received_chunk_{chunk_count}.bin"
                             with open(chunk_filename, 'wb') as cf:
                                 cf.write(to_write)
+                            # Run validator to report bin powers and max
+                            try:
+                                res = subprocess.run([
+                                    sys.executable,
+                                    str(Path(__file__).parent / 'tools' / 'validate_goertzel.py'),
+                                    str(chunk_filename)
+                                ], capture_output=True, text=True)
+                                if res.returncode == 0:
+                                    print(res.stdout.rstrip())
+                                else:
+                                    print(res.stderr.rstrip())
+                            except Exception as e:
+                                print(f"Validator error: {e}")
                             # Call analyzer on this chunk (non-blocking stdout/stderr passthru)
                             try:
-                                import subprocess, sys as _sys
+                                import subprocess as _subp, sys as _sys
                                 _sys.stdout.write(f"\n[Analyzer] Processing {chunk_filename}\n")
                                 _sys.stdout.flush()
-                                subprocess.run([_sys.executable, 'tools/analyze_adc.py', '--file', chunk_filename, '--iq', '--sample-rate', '22700', '--peaks', '5'], check=False)
+                                _subp.run([_sys.executable, 'tools/analyze_adc.py', '--file', chunk_filename, '--iq', '--sample-rate', '27778', '--peaks', '5'], check=False)
                             except Exception as e:
                                 print(f"Analyzer call failed: {e}", file=sys.stderr)
                             # remove written bytes from buffer

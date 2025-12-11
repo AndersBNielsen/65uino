@@ -24,6 +24,17 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "assemble: dry-run",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"DRY=1 ./assemble.sh"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	]
 }

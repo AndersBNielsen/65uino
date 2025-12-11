@@ -1,3 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Controls:
+#   SERIAL=1     → build and send/burn over serial
+#   SERIAL=0     → build only (default)
+#   DRY=1        → build only, do not send (overrides SERIAL)
+#   QUIET=1      → reduce log output
+
+SERIAL=${SERIAL:-0}
+DRY=${DRY:-0}
+QUIET=${QUIET:-0}
+
+log() {
+	if [[ "$QUIET" != "1" ]]; then
+		echo "$@"
+	fi
+}
+
+log "SERIAL=${SERIAL} DRY=${DRY} QUIET=${QUIET}"
+
+# Ensure build directory exists
+mkdir -p build
+
+# Assemble ROM
+log "Assembling..."
+ca65 -o build/abn6507rom.o abn6507rom.s
+ld65 -o build/abn6507rom.bin -C memmap.cfg build/abn6507rom.o
+log "ROM built: build/abn6507rom.bin"
+
+# Skip sending if DRY=1
+if [[ "$DRY" == "1" ]]; then
+	log "Dry run: skipping serial send/burn."
+	exit 0
+fi
+
 #!/bin/bash
 /opt/homebrew/bin/ca65 -vvv --cpu 6502 -l  build/listing.txt -o  build/abn6507rom.o abn6507rom.s
 /opt/homebrew/bin/ld65 -o build/abn6507rom.bin -C memmap.cfg "./build/abn6507rom.o" #"./build/crom.o" "./build/userland.o"
