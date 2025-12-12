@@ -240,7 +240,6 @@ td_power_lo: .res 1
 td_power_hi: .res 1
 ; removed td_coeff_q07 and td_sin_q07 - use td_coeff_lo/td_coeff_hi
 td_tmp: .res 1
-xtmp:   .res 1
 td_sample: .res 1
 td_max_bin: .res 1
 td_prod_lo: .res 1
@@ -333,8 +332,10 @@ sin_q14_hi:
 	; Output: td_tmp_hi:td_tmp_lo = result (16-bit signed)
 	; Uses: td_prod_lo/hi as temps, td_tmp32_0..3 for partial accumulation
 	; Load operands
-	; preserve Y across this helper (caller uses Y heavily)
+	; preserve Y and X across this helper (caller uses Y and X heavily)
 	sty td_saved_y
+	txa
+	pha
 	lda td_tmp_lo
 	sta td_a         ; val_lo
 	lda td_tmp_hi
@@ -387,6 +388,8 @@ sin_q14_hi:
 	lda td_prod_hi
 	sta td_tmp_hi
 	ldy td_saved_y
+	pla
+	tax
 	rts
 .endproc
 
