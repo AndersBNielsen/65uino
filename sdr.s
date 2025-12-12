@@ -122,15 +122,7 @@ rts
 ; Fs ≈ 27,778 Hz → bin spacing ≈ 434.0 Hz (N=64)
 ; Target ~1 kHz steps using k = [2,5,7,9,12,14,16,18]
 ; Centers ≈ [0.87k, 2.17k, 3.04k, 3.91k, 5.21k, 6.08k, 6.96k, 7.83k] Hz
-; Q0.7 coefficients: round(cos(2*pi*k/64) * 128)
-; Usage: implements 2*cos(w) via (coeff_q07 * (s_prev << 1)) >> 7
-; k bins used: [2,5,7,9,12,14,16,18]
-coeff_q07:
-	.byte $7E,$71,$63,$51,$31,$19,$00,$E7
-
-; Sine coefficients: sin(2*pi*k/64) in signed Q0.7
-sin_q07:
-	.byte $19,$3C,$51,$64,$76,$7E,$7F,$7E
+; (Q0.7 tables removed - using Q1.14 tables only)
 
 ; Q1.14 coefficients (16-bit little-endian) for 2*cos(2*pi*k/64) scaled to Q1.14
 ; These values should be calculated offline; placeholder values derived from q0.7*128
@@ -246,9 +238,9 @@ td_s_prev_lo: .res 1
 td_s_prev_hi: .res 1
 td_power_lo: .res 1
 td_power_hi: .res 1
-td_coeff_q07: .res 1
-td_sin_q07: .res 1
+; removed td_coeff_q07 and td_sin_q07 - use td_coeff_lo/td_coeff_hi
 td_tmp: .res 1
+xtmp:   .res 1
 td_sample: .res 1
 td_max_bin: .res 1
 td_prod_lo: .res 1
@@ -264,10 +256,10 @@ td_tmp32_3: .res 1
 td_tmp32_4: .res 1
 td_tmp32_5: .res 1
 td_saved_y: .res 1
+td_coeff_lo: .res 1
+td_coeff_hi: .res 1
 .segment "RODATA"
-; reuse existing names td_coeff_q07 and td_sin_q07 as temporary coeff_lo/hi and sin_lo/hi
-; removed 24-bit recurrence workspace variables to free zero-page
-; Implement 2*cos via coeff_q07 * (s_prev<<1) >> 7
+; Using Q1.14 coeffs and safe zero-page temps
 .proc td_asr7_16
 	; Arithmetic right shift by 7 on td_prod_hi:td_prod_lo
 	; Input: td_prod_hi:td_prod_lo
@@ -320,10 +312,14 @@ sin_q14_hi:
 	.byte $0C,$23,$2D,$35,$3E,$3F,$40,$3F
 
 .proc td_compute_t
-	; Wrapper that preserves X and forwards to Q1.14 computation
+	; Wrapper that preserves X and Y then forwards to Q1.14 computation
 	txa
 	pha
+	tya
+	pha
 	jsr td_compute_t_q14
+	pla
+	tay
 	pla
 	tax
 	rts
@@ -337,13 +333,16 @@ sin_q14_hi:
 	; Output: td_tmp_hi:td_tmp_lo = result (16-bit signed)
 	; Uses: td_prod_lo/hi as temps, td_tmp32_0..3 for partial accumulation
 	; Load operands
+	; preserve Y across this helper (caller uses Y heavily)
+	sty td_saved_y
 	lda td_tmp_lo
 	sta td_a         ; val_lo
 	lda td_tmp_hi
 	sta td_b         ; val_hi
-	lda td_coeff_q07 ; reuse existing coeff byte storage for low byte
+	; load coeff from safe temps (do not clobber td_coeff_q07/td_sin_q07)
+	lda td_coeff_lo
 	sta td_tmp32_0   ; coeff_lo
-	lda td_sin_q07   ; reuse for coeff_hi (we won't use sin_q07 in this path)
+	lda td_coeff_hi
 	sta td_tmp32_1   ; coeff_hi
 	; P0 = coeff_lo * val_lo
 	lda td_tmp32_0
@@ -387,6 +386,7 @@ sin_q14_hi:
 	sta td_tmp_lo
 	lda td_prod_hi
 	sta td_tmp_hi
+	ldy td_saved_y
 	rts
 .endproc
 
@@ -399,9 +399,9 @@ sin_q14_hi:
 	rol td_s_prev_hi
 	; Load coeff_q14 for current X (lo/hi)
 	lda coeff_q14_lo,x
-	sta td_coeff_q07   ; reuse as coeff_lo
+	sta td_coeff_lo
 	lda coeff_q14_hi,x
-	sta td_sin_q07     ; reuse as coeff_hi
+	sta td_coeff_hi
 	; td_tmp = S2
 	lda td_s_prev_lo
 	sta td_tmp_lo
@@ -413,6 +413,9 @@ sin_q14_hi:
 
 ; 16-bit Q1.14 recurrence update and final energy (re/im)
 .proc detect_tone_q14_16bit
+	; entry marker for debugging
+	lda #$44
+	jsr dbg_putc
 	lda #$08
 	sta ptr+1
 	ldx #$00
@@ -421,6 +424,14 @@ sin_q14_hi:
 	stx td_power_lo
 	stx td_power_hi
 @bin_loop:
+	; bin entry marker
+	lda #$62 ; 'b'
+	jsr dbg_putc
+	; clear per-bin max power
+	lda #$00
+	sta td_power_lo
+	lda #$00
+	sta td_power_hi
 	; init 16-bit states
 	lda #$00
 	sta td_s_prev_lo
@@ -431,51 +442,55 @@ sin_q14_hi:
 	ldy #$00
 @sample_loop:
 	lda (ptr),y
+	; center to signed: A = (A - 128)
 	sec
 	sbc #$80
-	; arithmetic shift right by 1 (Q1.14 expects centered small x)
-	bpl :+
-	; negative: set carry for ROR
+	; arithmetic shift right by 1: set carry = sign bit then ROR
+	and #$80
+	beq @asr_nosign
 	sec
-	bne :++
-:
+	jmp @asr_do2
+@asr_nosign:
 	clc
-:
-	ror               ; asr1 on A
+@asr_do2:
+	ror
 	sta td_sample
 	; compute t
-	jsr td_compute_t_q14
-	; s = x + t - s_prev2
+	jsr td_compute_t
+	; s = x + t - s_prev2 -> store into td_tmp_lo/hi first
 	clc
 	lda td_sample
 	adc td_tmp_lo
 	sec
 	sbc td_tmp32_0
-	sta td_s_prev_lo
+	sta td_tmp_lo
 	lda #$00
 	adc td_tmp_hi
 	sbc td_tmp32_1
-	sta td_s_prev_hi
-	; rotate prevs
-	lda td_tmp32_0
-	sta td_tmp32_0      ; keep old s_prev2_lo (no-op; placeholder)
-	lda td_tmp32_1
-	sta td_tmp32_1
+	sta td_tmp_hi
+	; rotate prevs: s_prev2 = old s_prev; s_prev = s (from td_tmp)
 	lda td_s_prev_lo
 	sta td_tmp32_0
 	lda td_s_prev_hi
 	sta td_tmp32_1
+	lda td_tmp_lo
+	sta td_s_prev_lo
+	lda td_tmp_hi
+	sta td_s_prev_hi
 	; next
 	iny
 	iny
 	cpy #$80
 	bne @sample_loop
+	; sample-loop exit marker
+	lda #$73 ; 's'
+	jsr dbg_putc
 	; final re/im and energy
 	; re = s_prev - (coeff_q14 * s_prev2)>>14
 	lda coeff_q14_lo,x
-	sta td_coeff_q07
+	sta td_coeff_lo
 	lda coeff_q14_hi,x
-	sta td_sin_q07
+	sta td_coeff_hi
 	lda td_tmp32_0
 	sta td_tmp_lo
 	lda td_tmp32_1
@@ -492,9 +507,9 @@ sin_q14_hi:
 	sta td_prod_hi    ; re_hi
 	; im = (sin_q14 * s_prev2)>>14
 	lda sin_q14_lo,x
-	sta td_coeff_q07
+	sta td_coeff_lo
 	lda sin_q14_hi,x
-	sta td_sin_q07
+	sta td_coeff_hi
 	lda td_tmp32_0
 	sta td_tmp_lo
 	lda td_tmp32_1
@@ -550,6 +565,9 @@ sin_q14_hi:
 	lda td_power_lo
 	jsr printsafebyte
 	lda #$0A
+	jsr dbg_putc
+	; exit marker
+	lda #$45
 	jsr dbg_putc
 	rts
 .endproc
