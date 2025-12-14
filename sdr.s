@@ -81,9 +81,9 @@ rts
 ; Mirrors the traversal used in readadc.
 ; ---------------------------------------------
 ramout:
-lda #$A5
+lda #$AB
 jsr serial_tx
-lda #$A5
+lda #$AB
 jsr serial_tx
 
 ramoutnopre:
@@ -223,10 +223,10 @@ mul8_skip_add:
 ; ---------------------------------------------
 .proc dbg_putc ; safe single-char print preserving X/Y
 	; A contains the character to print; preserve X and Y without touching A
-	stx xtmp      ; save X in global ZP temp
+	stx dbg_saved_x ; save X in global ZP temp
 	sty td_saved_y ; save Y in new workspace temp (avoid clobbering td_b)
 	jsr serial_tx ; send A
-	ldx xtmp      ; restore X
+	ldx dbg_saved_x ; restore X
 	ldy td_saved_y; restore Y
 	rts
 .endproc
@@ -238,6 +238,8 @@ td_s_prev_lo: .res 1
 td_s_prev_hi: .res 1
 td_power_lo: .res 1
 td_power_hi: .res 1
+td_bin_power_lo: .res 1
+td_bin_power_hi: .res 1
 ; removed td_coeff_q07 and td_sin_q07 - use td_coeff_lo/td_coeff_hi
 td_tmp: .res 1
 td_sample: .res 1
@@ -255,60 +257,29 @@ td_tmp32_3: .res 1
 td_tmp32_4: .res 1
 td_tmp32_5: .res 1
 td_saved_y: .res 1
+dbg_saved_x: .res 1
 td_coeff_lo: .res 1
 td_coeff_hi: .res 1
+td_s_prev2_lo: .res 1
+td_s_prev2_hi: .res 1
+td_mul_debug: .res 1
+td_samples_shown: .res 1
+td_sample_idx: .res 1
+; (alt multiply temps removed to save ROM)
 .segment "RODATA"
 ; Using Q1.14 coeffs and safe zero-page temps
-.proc td_asr7_16
-	; Arithmetic right shift by 7 on td_prod_hi:td_prod_lo
-	; Input: td_prod_hi:td_prod_lo
-	; Output: td_prod_hi:td_prod_lo shifted arithmetically by 7
-	ldx #$07
-@loop:
-	lda td_prod_hi
-	and #$80
-	beq @clc
-	sec
-	bne @do
-@clc:
-	clc
-@do:
-	ror td_prod_hi
-	ror td_prod_lo
-	dex
-	bne @loop
-	rts
-.endproc
 
-.proc td_asr8_16
-	; Arithmetic right shift by 8 on td_prod_hi:td_prod_lo
-	ldx #$08
-@loop8:
-	lda td_prod_hi
-	and #$80
-	beq @clc8
-	sec
-	bne @do8
-@clc8:
-	clc
-@do8:
-	ror td_prod_hi
-	ror td_prod_lo
-	dex
-	bne @loop8
-	rts
-.endproc
 
 ; Q1.14 coefficients (signed 16-bit, little endian) for bins [2,5,7,9,12,14,16,18]
 ; Store Q1.14 coeffs split into low/high byte arrays for indexed access
 coeff_q14_lo:
-	.byte $D5,$45,$41,$8E,$7C,$45,$00,$BB
+	.byte $8A,$E3,$F2,$34,$FC,$F9,$00,$07
 coeff_q14_hi:
-	.byte $3E,$35,$2D,$23,$0C,$06,$00,$F9
+	.byte $7D,$70,$62,$51,$30,$18,$00,$E7
 sin_q14_lo:
-	.byte $7C,$8E,$41,$45,$D5,$96,$00,$96
+	.byte $7C,$2B,$9A,$79,$21,$C5,$00,$C5
 sin_q14_hi:
-	.byte $0C,$23,$2D,$35,$3E,$3F,$40,$3F
+	.byte $0C,$1E,$28,$31,$3B,$3E,$40,$3E
 
 .proc td_compute_t
 	; Wrapper that preserves X and Y then forwards to Q1.14 computation
@@ -328,97 +299,136 @@ sin_q14_hi:
 ; 16-bit Q1.14 multiply helper: r = (coeff(16) * val(16)) >> 14 (arith)
 .proc td_mul_q14_shift14
 	; Inputs: td_tmp_hi:td_tmp_lo = val (16-bit signed)
-	;         td_coeff_hi:td_coeff_lo = coeff (16-bit signed) — we reuse td_prod_hi/lo to pass coeff
-	; Output: td_tmp_hi:td_tmp_lo = result (16-bit signed)
-	; Uses: td_prod_lo/hi as temps, td_tmp32_0..3 for partial accumulation
-	; Load operands
-	; preserve Y and X across this helper (caller uses Y and X heavily)
+	;         td_coeff_hi:td_coeff_lo = coeff (16-bit signed)
+	; Output: td_tmp_hi:td_tmp_lo = result (16-bit signed) = (coeff*val) >> 14 (arith)
+	; Uses td_tmp32_0..td_tmp32_5 for partials and td_prod_lo/hi for temporary P3
+	; Preserve Y and X across this helper (caller uses Y and X heavily)
 	sty td_saved_y
 	txa
 	pha
-	lda td_tmp_lo
-	sta td_a         ; val_lo
-	lda td_tmp_hi
-	sta td_b         ; val_hi
-	; load coeff from safe temps (do not clobber td_coeff_q07/td_sin_q07)
+	; Compute P0 = coeff_lo * val_lo
 	lda td_coeff_lo
-	sta td_tmp32_0   ; coeff_lo
-	lda td_coeff_hi
-	sta td_tmp32_1   ; coeff_hi
-	; P0 = coeff_lo * val_lo
-	lda td_tmp32_0
 	sta td_a
 	lda td_tmp_lo
 	sta td_b
 	jsr mul8_signed
 	lda td_prod_lo
-	sta td_tmp32_2   ; acc_lo
+	sta td_tmp32_0   ; P0_lo
 	lda td_prod_hi
-	sta td_tmp32_3   ; acc_hi
-	; P1 = coeff_hi * val_lo (goes to high bytes)
-	lda td_tmp32_1
+	sta td_tmp32_1   ; P0_hi
+	; (P0 computed above in td_tmp32_0/1)
+	; Compute P1 = coeff_hi * val_lo
+	lda td_coeff_hi
 	sta td_a
 	lda td_tmp_lo
 	sta td_b
 	jsr mul8_signed
-	clc
-	lda td_tmp32_3
-	adc td_prod_lo
-	sta td_tmp32_3
-	; P2 = coeff_lo * val_hi
-	lda td_tmp32_0
+	lda td_prod_lo
+	sta td_tmp32_2   ; P1_lo
+	lda td_prod_hi
+	sta td_tmp32_3   ; P1_hi
+	; (P1 computed above in td_tmp32_2/3)
+	; Compute P2 = coeff_lo * val_hi
+	lda td_coeff_lo
 	sta td_a
 	lda td_tmp_hi
 	sta td_b
 	jsr mul8_signed
-	clc
-	lda td_tmp32_3
-	adc td_prod_lo
-	sta td_tmp32_3
-	; After adding cross terms, apply >>14: do two >>7 shifts sequentially on acc_hi:acc_lo
-	; Move acc into td_prod_hi:td_prod_lo
-	lda td_tmp32_2
-	sta td_prod_lo
-	lda td_tmp32_3
-	sta td_prod_hi
-	jsr td_asr7_16
-	jsr td_asr7_16
 	lda td_prod_lo
-	sta td_tmp_lo
+	sta td_tmp32_4   ; P2_lo
 	lda td_prod_hi
+	sta td_tmp32_5   ; P2_hi
+	; (P2 computed above in td_tmp32_4/5)
+	; Compute P3 = coeff_hi * val_hi (result in td_prod_lo/hi)
+	lda td_coeff_hi
+	sta td_a
+	lda td_tmp_hi
+	sta td_b
+	jsr mul8_signed
+	; td_prod_lo/hi = P3_lo/P3_hi
+	; (P3 in td_prod_lo/hi)
+
+	; Assemble 32-bit product acc3:acc2:acc1:acc0 into td_tmp32_3..0
+	; acc0 = P0_lo (td_tmp32_0)
+	; acc1 = P0_hi + P1_lo + P2_lo
+	lda td_tmp32_1
+	clc
+	adc td_tmp32_2
+	adc td_tmp32_4
+	sta td_tmp32_1
+	; save carry from acc1 so it reliably propagates into acc2
+	php
+
+	; acc2 = P1_hi + P2_hi + P3_lo + carry
+	plp
+	lda td_tmp32_3
+	adc td_tmp32_5
+	adc td_prod_lo
+	sta td_tmp32_2
+	; acc3 = P3_hi + carry
+	lda td_prod_hi
+	adc #$00
+	sta td_tmp32_3
+	; No debug printing here in production image.
+
+	; Now perform arithmetic right shift by 14 on the 32-bit acc (td_tmp32_3:2:1:0)
+	ldx #$0E
+shr14_loop:
+    ; set carry = sign bit of acc3
+    lda td_tmp32_3
+    and #$80
+    beq clr_c
+    sec
+    jmp do_ror
+clr_c:
+    clc
+do_ror:
+    ; ROR must start at most-significant byte (acc3) and propagate down to acc0
+    ror td_tmp32_3
+    ror td_tmp32_2
+    ror td_tmp32_1
+    ror td_tmp32_0
+    dex
+    bne shr14_loop
+
+
+	; Return lower 16 bits (acc0:acc1) as result into td_tmp_lo:td_tmp_hi
+	lda td_tmp32_0
+	sta td_tmp_lo
+	lda td_tmp32_1
 	sta td_tmp_hi
+	; No result prints here in production image
 	ldy td_saved_y
 	pla
 	tax
 	rts
 .endproc
 
+; Small wrapper to call td_mul_q14_shift14 from userland without using ZP
+; Inputs: A=val_lo, X=val_hi, Y=coeff_index
+; Effect: computes (coeff * val)>>14 and prints result (td_tmp_hi/lo)
+; (td_call_and_print wrapper removed to reduce ROM size)
+
 ; 16-bit Q1.14 t computation: t = (coeff_q14 * (s_prev<<1)) >> 14
 .proc td_compute_t_q14
-	; Inputs: td_s_prev_lo/hi, coeff_q14 in table
-	; Output: td_tmp_hi:td_tmp_lo = t
-	; Build S2 = s_prev << 1
-	asl td_s_prev_lo
-	rol td_s_prev_hi
-	; Load coeff_q14 for current X (lo/hi)
-	lda coeff_q14_lo,x
-	sta td_coeff_lo
-	lda coeff_q14_hi,x
-	sta td_coeff_hi
-	; td_tmp = S2
-	lda td_s_prev_lo
-	sta td_tmp_lo
-	lda td_s_prev_hi
-	sta td_tmp_hi
-	jsr td_mul_q14_shift14
-	rts
+    lda td_s_prev_lo
+    sta td_tmp_lo
+    lda td_s_prev_hi
+    sta td_tmp_hi
+    asl td_tmp_lo
+    rol td_tmp_hi
+
+    lda coeff_q14_lo,x
+    sta td_coeff_lo
+    lda coeff_q14_hi,x
+    sta td_coeff_hi
+
+    jsr td_mul_q14_shift14
+    rts
 .endproc
 
 ; 16-bit Q1.14 recurrence update and final energy (re/im)
 .proc detect_tone_q14_16bit
-	; entry marker for debugging
-	lda #$44
-	jsr dbg_putc
 	lda #$08
 	sta ptr+1
 	ldx #$00
@@ -426,152 +436,171 @@ sin_q14_hi:
 	stx td_max_bin
 	stx td_power_lo
 	stx td_power_hi
-@bin_loop:
-	; bin entry marker
-	lda #$62 ; 'b'
-	jsr dbg_putc
-	; clear per-bin max power
+bin_loop:
+	; print bin index (compact)
+	txa
+	jsr printsafebyte
+	; reset per-bin energy
 	lda #$00
-	sta td_power_lo
+	sta td_bin_power_lo
 	lda #$00
-	sta td_power_hi
-	; init 16-bit states
+	sta td_bin_power_hi
+	; init prevs
 	lda #$00
 	sta td_s_prev_lo
 	sta td_s_prev_hi
-	sta td_tmp32_0      ; s_prev2_lo
-	sta td_tmp32_1      ; s_prev2_hi
-	; sample loop (64 I samples)
+	sta td_s_prev2_lo
+	sta td_s_prev2_hi
+	; process 64 samples
 	ldy #$00
-@sample_loop:
+@sample_loop2:
 	lda (ptr),y
-	; center to signed: A = (A - 128)
 	sec
-	sbc #$80
-	; arithmetic shift right by 1: set carry = sign bit then ROR
-	and #$80
-	beq @asr_nosign
-	sec
-	jmp @asr_do2
-@asr_nosign:
-	clc
-@asr_do2:
-	ror
+	sbc #$80        ; center to signed 8-bit
 	sta td_sample
 	; compute t
 	jsr td_compute_t
-	; s = x + t - s_prev2 -> store into td_tmp_lo/hi first
-	clc
+	; s = x + t - s_prev2 (16-bit: sign-extend x, then add t, then subtract s_prev2)
+	; build x16_hi in td_tmp32_5
 	lda td_sample
-	adc td_tmp_lo
-	sec
-	sbc td_tmp32_0
-	sta td_tmp_lo
+	and #$80
+	beq :+
+	lda #$FF
+	bne :++
+:
 	lda #$00
-	adc td_tmp_hi
-	sbc td_tmp32_1
+:
+	sta td_tmp32_5   ; x16_hi
+	; sum = x16 + t
+	clc
+	lda td_sample    ; x16_lo
+	adc td_tmp_lo    ; + t_lo
+	sta td_tmp_lo    ; sum_lo
+	lda td_tmp32_5   ; x16_hi
+	adc td_tmp_hi    ; + t_hi + carry
+	sta td_tmp_hi    ; sum_hi
+	; s = sum - s_prev2
+	sec
+	lda td_tmp_lo
+	sbc td_s_prev2_lo
+	sta td_tmp_lo
+	lda td_tmp_hi
+	sbc td_s_prev2_hi
 	sta td_tmp_hi
-	; rotate prevs: s_prev2 = old s_prev; s_prev = s (from td_tmp)
+	; rotate prevs
 	lda td_s_prev_lo
-	sta td_tmp32_0
+	sta td_s_prev2_lo
 	lda td_s_prev_hi
-	sta td_tmp32_1
+	sta td_s_prev2_hi
 	lda td_tmp_lo
 	sta td_s_prev_lo
 	lda td_tmp_hi
 	sta td_s_prev_hi
-	; next
 	iny
 	iny
 	cpy #$80
-	bne @sample_loop
-	; sample-loop exit marker
-	lda #$73 ; 's'
-	jsr dbg_putc
-	; final re/im and energy
-	; re = s_prev - (coeff_q14 * s_prev2)>>14
+	bne @sample_loop2
+	; compute re = s_prev - (coeff*s_prev2)>>14
 	lda coeff_q14_lo,x
 	sta td_coeff_lo
 	lda coeff_q14_hi,x
 	sta td_coeff_hi
-	lda td_tmp32_0
+	lda td_s_prev2_lo
 	sta td_tmp_lo
-	lda td_tmp32_1
+	lda td_s_prev2_hi
 	sta td_tmp_hi
 	jsr td_mul_q14_shift14
-	; td_tmp = (coeff*s_prev2)>>14
-	; re = s_prev - td_tmp
 	sec
 	lda td_s_prev_lo
 	sbc td_tmp_lo
-	sta td_prod_lo    ; reuse as re_lo
+	sta td_prod_lo
 	lda td_s_prev_hi
 	sbc td_tmp_hi
-	sta td_prod_hi    ; re_hi
+	sta td_prod_hi
 	; im = (sin_q14 * s_prev2)>>14
 	lda sin_q14_lo,x
 	sta td_coeff_lo
 	lda sin_q14_hi,x
 	sta td_coeff_hi
-	lda td_tmp32_0
+	lda td_s_prev2_lo
 	sta td_tmp_lo
-	lda td_tmp32_1
+	lda td_s_prev2_hi
 	sta td_tmp_hi
 	jsr td_mul_q14_shift14
-	; td_tmp = im
-	; E = re^2 + im^2 (truncate to 16-bit)
-	; re^2
-	lda td_prod_lo
-	sta td_a
-	lda td_prod_lo
-	sta td_b
-	jsr mul8_signed
+	lda td_tmp_lo
+	sta td_tmp32_4
+	lda td_tmp_hi
+	sta td_tmp32_5
+	; abs(re)
 	lda td_prod_hi
-	sta td_power_hi    ; reuse as temp
+	and #$80
+	beq repos2
 	lda td_prod_lo
-	sta td_power_lo
-	; im^2 add
-	lda td_tmp_lo
-	sta td_a
-	lda td_tmp_lo
-	sta td_b
-	jsr mul8_signed
+	eor #$FF
+	sta td_tmp32_0
+	lda td_prod_hi
+	eor #$FF
+	sta td_tmp32_1
+	inc td_tmp32_0
+	beq reabs2
+	inc td_tmp32_1
+	jmp reabs2
+repos2:
+	lda td_prod_lo
+	sta td_tmp32_0
+	lda td_prod_hi
+	sta td_tmp32_1
+reabs2:
+	; abs(im)
+	lda td_tmp32_5
+	and #$80
+	beq impos2
+	lda td_tmp32_4
+	eor #$FF
+	sta td_tmp32_2
+	lda td_tmp32_5
+	eor #$FF
+	sta td_tmp32_3
+	inc td_tmp32_2
+	beq imabs2
+	inc td_tmp32_3
+	jmp imabs2
+impos2:
+	lda td_tmp32_4
+	sta td_tmp32_2
+	lda td_tmp32_5
+	sta td_tmp32_3
+imabs2:
+	; sum abs_re + abs_im
 	clc
-	lda td_power_lo
-	adc td_prod_lo
+	lda td_tmp32_0
+	adc td_tmp32_2
 	sta td_tmp_lo
-	lda td_power_hi
-	adc td_prod_hi
+	lda td_tmp32_1
+	adc td_tmp32_3
 	sta td_tmp_hi
-	; select max
-	jsr td_select_max
-	inx
-	cpx #$08
-	beq :+
-	jmp @bin_loop
-	:
-	; print summary b:<bin> p:<power> newline
-	lda #$62
-	jsr dbg_putc
-	lda #$3A
-	jsr dbg_putc
-	lda td_max_bin
+	; store per-bin energy
+	lda td_tmp_lo
+	sta td_bin_power_lo
+	lda td_tmp_hi
+	sta td_bin_power_hi
+	; print index and energy
+	txa
 	jsr printsafebyte
 	lda #$20
 	jsr dbg_putc
-	lda #$70
-	jsr dbg_putc
-	lda #$3A
-	jsr dbg_putc
-	lda td_power_hi
+	lda td_bin_power_hi
 	jsr printsafebyte
-	lda td_power_lo
+	lda td_bin_power_lo
 	jsr printsafebyte
 	lda #$0A
 	jsr dbg_putc
-	; exit marker
-	lda #$45
-	jsr dbg_putc
+	jsr td_select_max
+	inx
+	cpx #$08
+	beq end_bins2
+	jmp bin_loop
+end_bins2:
 	rts
 .endproc
 
@@ -590,40 +619,20 @@ sin_q14_hi:
 	rts
 .endproc
 
-; Print A as two hex characters while preserving X and Y
-.proc print_byte_preserve
-	; save X and Y into zero-page temps
-	txa
-	sta td_tmp       ; save X
-	tya
-	sta td_saved_y   ; save Y
-	jsr printsafebyte
-	lda td_tmp
-	tax
-	lda td_saved_y
-	tay
-	rts
-.endproc
-
-.proc td_debug_print_bin
-	lda #'<'
-	jsr dbg_putc
-	rts
-.endproc
-
 .proc td_select_max
 	; Compare td_tmp (E) with td_power, update max and index
-	lda td_tmp_hi
+	; Compare per-bin energy (td_bin_power_*) against global max (td_power_*)
+	lda td_bin_power_hi
 	cmp td_power_hi
 	bcc @done
 	bne @set
-	lda td_tmp_lo
+	lda td_bin_power_lo
 	cmp td_power_lo
 	bcc @done
 @set:
-	lda td_tmp_lo
+	lda td_bin_power_lo
 	sta td_power_lo
-	lda td_tmp_hi
+	lda td_bin_power_hi
 	sta td_power_hi
 	txa
 	sta td_max_bin

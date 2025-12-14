@@ -8,7 +8,6 @@
 .org $0e ; Just to make listing.txt match
 userland:
 
-
 lda DDRA
 ora #$80
 sta DDRA ; Clock output
@@ -57,13 +56,5 @@ sta DRA            ; Turn off clock, Serial TX high
 ldy #0
 jsr ramout
 
-
-; stop here after one run so serial output can be observed
 hang:
-	jmp hang
-
-; Test mul8: multiply 6 * 7 and print 16-bit result via serial in hex.
-; Uses ROM routines: serial_tx, serialbyte, bytetoa, hextoa
-; (start_mul8_test removed to fit userland)
-; Simple 8x8->16 multiply: A=multiplicand, X=multiplier -> A=prod_lo, Y=prod_hi
-; Using mul8 from sdr.s
+    jmp userland

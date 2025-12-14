@@ -641,7 +641,7 @@ serialbyte:
     pla ; Restore A
 rts
 
-bytetoa: ;This SR puts LSB in A and MSB in HXH - as ascii using hextoa.
+bytetoa: ;This SR puts LSB in A and MSB in xtmp - as ascii using hextoa.
 pha
 lsr
 lsr
