@@ -273,9 +273,9 @@ td_sample_idx: .res 1
 ; Q1.14 coefficients (signed 16-bit, little endian) for bins [2,5,7,9,12,14,16,18]
 ; Store Q1.14 coeffs split into low/high byte arrays for indexed access
 coeff_q14_lo:
-	.byte $8A,$E3,$F2,$34,$FC,$F9,$00,$07
+	.byte $C5,$71,$79,$9A,$7E,$7C,$00,$83
 coeff_q14_hi:
-	.byte $7D,$70,$62,$51,$30,$18,$00,$E7
+	.byte $3E,$38,$31,$28,$18,$0C,$00,$F3
 sin_q14_lo:
 	.byte $7C,$2B,$9A,$79,$21,$C5,$00,$C5
 sin_q14_hi:
@@ -311,7 +311,7 @@ sin_q14_hi:
 	sta td_a
 	lda td_tmp_lo
 	sta td_b
-	jsr mul8_signed
+	jsr mul8
 	lda td_prod_lo
 	sta td_tmp32_0   ; P0_lo
 	lda td_prod_hi
@@ -322,7 +322,7 @@ sin_q14_hi:
 	sta td_a
 	lda td_tmp_lo
 	sta td_b
-	jsr mul8_signed
+	jsr mul8
 	lda td_prod_lo
 	sta td_tmp32_2   ; P1_lo
 	lda td_prod_hi
@@ -333,7 +333,7 @@ sin_q14_hi:
 	sta td_a
 	lda td_tmp_hi
 	sta td_b
-	jsr mul8_signed
+	jsr mul8
 	lda td_prod_lo
 	sta td_tmp32_4   ; P2_lo
 	lda td_prod_hi
@@ -344,7 +344,7 @@ sin_q14_hi:
 	sta td_a
 	lda td_tmp_hi
 	sta td_b
-	jsr mul8_signed
+	jsr mul8
 	; td_prod_lo/hi = P3_lo/P3_hi
 	; (P3 in td_prod_lo/hi)
 

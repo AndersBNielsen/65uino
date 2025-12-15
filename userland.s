@@ -57,4 +57,4 @@ ldy #0
 jsr ramout
 
 hang:
-    jmp userland
+    jmp hang

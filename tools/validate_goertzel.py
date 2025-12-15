@@ -297,17 +297,8 @@ def detect_bins_q14_16bit_parity(samples_i):
         s_prev = 0
         s_prev2 = 0
         for n in range(N):
-            # center, then arithmetic >>1 like 6502: set carry from sign then ROR
-            x = (samples_i[n] - 0x80) & 0xFF
-            # emulate: asl sample (carry gets sign), then ror original
-            sign = (x & 0x80) != 0
-            x_ror = x
-            if sign:
-                # carry=1: ROR with carry produces 1 in MSB
-                x_ror = ((x >> 1) | 0x80) & 0xFF
-            else:
-                x_ror = (x >> 1) & 0xFF
-            x_i8 = i8(x_ror)
+            # center sample like ROM: x = sample - 128 (no >>1)
+            x_i8 = i8((samples_i[n] - 0x80) & 0xFF)
             # compute t using 16-bit sprev
             sp = int(i16(s_prev))
             t = (coeff * (sp << 1)) >> 14
@@ -1793,13 +1784,20 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1].endswith('.bin'):
         path = Path(sys.argv[1])
         samples_i = read_chunk(path)
-        idx_rom, powers_rom, powers_rom_abs = detect_bins_q14_16bit(samples_i[:N])
+        # Use parity-oriented routine that emulates ROM's sample centering and ROR/ASL behavior
+        rom_par = detect_bins_q14_16bit_parity(samples_i[:N])
+        # rom_par is a list of dicts per bin
+        powers_rom_abs = [d['e_abs'] & 0xFFFF for d in rom_par]
+        powers_rom = [ (d['re']*d['re'] + d['im']*d['im']) for d in rom_par ]
+        idx_rom = max(range(len(powers_rom_abs)), key=lambda i: powers_rom_abs[i])
         idx_ref, powers_ref = detect_bins_reference(samples_i[:N])
         print(f"File: {path}")
         print("ROM emu (Q1.14 16-bit):")
         for i, k in enumerate(BINS):
             fk = k * FS / N
-            print(f"k={k:2d} (~{fk/1000:.2f} kHz): power_sq={powers_rom[i]:.3f} power_abs={powers_rom_abs[i]:.3f}")
+            # Format to match ROM: print 16-bit hex hi then lo for E_abs and numeric value
+            e_abs = int(powers_rom_abs[i]) & 0xFFFF
+            print(f"k={k:2d} (~{fk/1000:.2f} kHz): E_abs=0x{(e_abs>>8)&0xFF:02X}{e_abs&0xFF:02X} ({e_abs})")
         print(f"ROM best bin = {BINS[idx_rom]} (~{BINS[idx_rom]*FS/N/1000:.2f} kHz)")
         print("Reference (float):")
         for i, k in enumerate(BINS):
@@ -1818,13 +1816,17 @@ def main():
         for x in samples:
             val = int(round(128 + 60 * x))
             samples_i.append(max(0, min(255, val)))
-        idx_rom, powers_rom, powers_rom_abs = detect_bins_q14_16bit(samples_i[:N])
+        rom_par = detect_bins_q14_16bit_parity(samples_i[:N])
+        powers_rom_abs = [d['e_abs'] & 0xFFFF for d in rom_par]
+        powers_rom = [ (d['re']*d['re'] + d['im']*d['im']) for d in rom_par ]
+        idx_rom = max(range(len(powers_rom_abs)), key=lambda i: powers_rom_abs[i])
         idx_ref, powers_ref = detect_bins_reference(samples_i[:N])
         print(f"Synthetic tone {freq} Hz")
         print("ROM emu (Q1.14 16-bit):")
         for i, k in enumerate(BINS):
             fk = k * FS / N
-            print(f"k={k:2d} (~{fk/1000:.2f} kHz): power_sq={powers_rom[i]:.3f} power_abs={powers_rom_abs[i]:.3f}")
+            e_abs = int(powers_rom_abs[i]) & 0xFFFF
+            print(f"k={k:2d} (~{fk/1000:.2f} kHz): E_abs=0x{(e_abs>>8)&0xFF:02X}{e_abs&0xFF:02X} ({e_abs})")
         print(f"ROM best bin = {BINS[idx_rom]} (~{BINS[idx_rom]*FS/N/1000:.2f} kHz)")
         print("Reference (float):")
         for i, k in enumerate(BINS):
@@ -1834,13 +1836,17 @@ def main():
     elif default_path.exists():
         path = default_path
         samples_i = read_chunk(path)
-        idx_rom, powers_rom, powers_rom_abs = detect_bins_q14_16bit(samples_i[:N])
+        rom_par = detect_bins_q14_16bit_parity(samples_i[:N])
+        powers_rom_abs = [d['e_abs'] & 0xFFFF for d in rom_par]
+        powers_rom = [ (d['re']*d['re'] + d['im']*d['im']) for d in rom_par ]
+        idx_rom = max(range(len(powers_rom_abs)), key=lambda i: powers_rom_abs[i])
         idx_ref, powers_ref = detect_bins_reference(samples_i[:N])
         print(f"File: {path}")
         print("ROM emu (Q1.14 16-bit):")
         for i, k in enumerate(BINS):
             fk = k * FS / N
-            print(f"k={k:2d} (~{fk/1000:.2f} kHz): power_sq={powers_rom[i]:.3f} power_abs={powers_rom_abs[i]:.3f}")
+            e_abs = int(powers_rom_abs[i]) & 0xFFFF
+            print(f"k={k:2d} (~{fk/1000:.2f} kHz): E_abs=0x{(e_abs>>8)&0xFF:02X}{e_abs&0xFF:02X} ({e_abs})")
         print(f"ROM best bin = {BINS[idx_rom]} (~{BINS[idx_rom]*FS/N/1000:.2f} kHz)")
         print("Reference (float):")
         for i, k in enumerate(BINS):
