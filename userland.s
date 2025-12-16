@@ -18,22 +18,16 @@ ora #$82
 sta DRA  ; High clock
 and #$7f
 sta DRA  ; 
-;ora #$80
-;sta DRA  ; High clock
-;and #$7f
-;sta DRA  ; 
 
 jsr readadcstart
 
 ; print start marker
 
-lda #'>'
-jsr dbg_putc
-
 jsr detect_tone_q14_16bit
 lda td_max_bin
-
 jsr printsafebyte
+lda #$0A
+jsr dbg_putc
 lda #$0A
 jsr dbg_putc
 ;ldx #$5A
@@ -51,10 +45,12 @@ jsr dbg_putc
 ; Halt here so the test runs only once and we can observe output
 
 
-lda #$02
-sta DRA            ; Turn off clock, Serial TX high
-ldy #0
-jsr ramout
+;lda #$02
+;sta DRA            ; Turn off clock, Serial TX high
+;ldy #0
+;jsr ramout
+
 
 hang:
-    jmp hang
+   jmp userland
+

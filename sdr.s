@@ -15,6 +15,7 @@ lda #$82
 sta countandclock
 ldx #2
 stx DRA            ; Serial TX high, clock off
+; Fall through 
 
 ;jsr ramtest_init
 ; ---------------------------------------------
@@ -69,7 +70,8 @@ adcinloop:
 
 adcdone:
 	; Finalize: ensure clock off, TX high
-	sty bankcount      ; Hope Y is 0
+	lda #0
+	sta bankcount      
 	lda #2 
 	sta DRA            ; Turn off clock, Serial TX high
 
@@ -130,44 +132,52 @@ rts
 
 ; General purpose 8x8 -> 16 multiply: td_a * td_b = td_prod_hi:td_prod_lo
 .proc mul8
-	; Correct unsigned 8x8 -> 16 using 16-bit accumulator shift-and-add
-	; Inputs: td_a (multiplicand), td_b (multiplier)
-	; Output: td_prod_hi:td_prod_lo
-	; Preserve X across call
-	txa
-	pha
-	lda #$00
-	sta td_prod_lo
-	sta td_prod_hi
-	; 16-bit accumulator acc_hi:acc_lo starts as td_a
-	lda td_a
-	sta xtmp          ; reuse xtmp as acc_lo
-	lda #$00
-	sta td_tmp_hi     ; acc_hi
-	ldx #$08
+    txa
+    pha
+    lda td_b
+    pha             ; save multiplier
+    lda xtmp
+    pha
+    lda td_tmp_hi
+    pha
+
+    lda #$00
+    sta td_prod_lo
+    sta td_prod_hi
+
+    lda td_a
+    sta xtmp
+    lda #$00
+    sta td_tmp_hi
+
+    ldx #$08
 mul8_loop:
-	lda td_b
-	and #$01
-	beq mul8_skip_add
-	; prod += acc (16-bit)
-	clc
-	lda td_prod_lo
-	adc xtmp          ; acc_lo
-	sta td_prod_lo
-	lda td_prod_hi
-	adc td_tmp_hi     ; acc_hi
-	sta td_prod_hi
-mul8_skip_add:
-	; acc <<= 1 (16-bit)
-	asl xtmp
-	rol td_tmp_hi
-	; td_b >>= 1
-	lsr td_b
-	dex
-	bne mul8_loop
-	pla
-	tax
-	rts
+    lda td_b
+    and #$01
+    beq :+
+    clc
+    lda td_prod_lo
+    adc xtmp
+    sta td_prod_lo
+    lda td_prod_hi
+    adc td_tmp_hi
+    sta td_prod_hi
+:
+    asl xtmp
+    rol td_tmp_hi
+    lsr td_b
+    dex
+    bne mul8_loop
+
+    pla
+    sta td_tmp_hi
+    pla
+    sta xtmp
+    pla
+    sta td_b
+    pla
+    tax
+    rts
 .endproc
 
 ; Signed 8x8 -> 16 multiply wrapper: td_a * td_b (signed)
@@ -301,106 +311,195 @@ sin_q14_hi:
 	; Inputs: td_tmp_hi:td_tmp_lo = val (16-bit signed)
 	;         td_coeff_hi:td_coeff_lo = coeff (16-bit signed)
 	; Output: td_tmp_hi:td_tmp_lo = result (16-bit signed) = (coeff*val) >> 14 (arith)
-	; Uses td_tmp32_0..td_tmp32_5 for partials and td_prod_lo/hi for temporary P3
-	; Preserve Y and X across this helper (caller uses Y and X heavily)
 	sty td_saved_y
 	txa
 	pha
-	; Compute P0 = coeff_lo * val_lo
-	lda td_coeff_lo
-	sta td_a
-	lda td_tmp_lo
-	sta td_b
-	jsr mul8
-	lda td_prod_lo
-	sta td_tmp32_0   ; P0_lo
-	lda td_prod_hi
-	sta td_tmp32_1   ; P0_hi
-	; (P0 computed above in td_tmp32_0/1)
-	; Compute P1 = coeff_hi * val_lo
-	lda td_coeff_hi
-	sta td_a
-	lda td_tmp_lo
-	sta td_b
-	jsr mul8
-	lda td_prod_lo
-	sta td_tmp32_2   ; P1_lo
-	lda td_prod_hi
-	sta td_tmp32_3   ; P1_hi
-	; (P1 computed above in td_tmp32_2/3)
-	; Compute P2 = coeff_lo * val_hi
-	lda td_coeff_lo
-	sta td_a
-	lda td_tmp_hi
-	sta td_b
-	jsr mul8
-	lda td_prod_lo
-	sta td_tmp32_4   ; P2_lo
-	lda td_prod_hi
-	sta td_tmp32_5   ; P2_hi
-	; (P2 computed above in td_tmp32_4/5)
-	; Compute P3 = coeff_hi * val_hi (result in td_prod_lo/hi)
-	lda td_coeff_hi
-	sta td_a
-	lda td_tmp_hi
-	sta td_b
-	jsr mul8
-	; td_prod_lo/hi = P3_lo/P3_hi
-	; (P3 in td_prod_lo/hi)
+	jsr td_mul_16x16       ; produces signed 32-bit in td_tmp32_3..0
+	jsr td_shr14_arith     ; arithmetic >>14, places low 16 bits in td_tmp_hi:td_tmp_lo
+	ldy td_saved_y
+	pla
+	tax
+	rts
+.endproc
 
-	; Assemble 32-bit product acc3:acc2:acc1:acc0 into td_tmp32_3..0
-	; acc0 = P0_lo (td_tmp32_0)
-	; acc1 = P0_hi + P1_lo + P2_lo
-	lda td_tmp32_1
-	clc
-	adc td_tmp32_2
-	adc td_tmp32_4
-	sta td_tmp32_1
-	; save carry from acc1 so it reliably propagates into acc2
-	php
+; Signed 16x16 -> signed 32 multiply
+; Inputs:
+;   td_coeff_hi:td_coeff_lo (signed)
+;   td_tmp_hi:td_tmp_lo     (signed)
+; Output:
+;   td_tmp32_3:td_tmp32_2:td_tmp32_1:td_tmp32_0
 
-	; acc2 = P1_hi + P2_hi + P3_lo + carry
-	plp
-	lda td_tmp32_3
-	adc td_tmp32_5
-	adc td_prod_lo
-	sta td_tmp32_2
-	; acc3 = P3_hi + carry
-	lda td_prod_hi
-	adc #$00
-	sta td_tmp32_3
-	; No debug printing here in production image.
+.proc td_mul_16x16
+    sty td_saved_y
+    txa
+    pha
 
-	; Now perform arithmetic right shift by 14 on the 32-bit acc (td_tmp32_3:2:1:0)
+    ; clear accumulator
+    lda #$00
+    sta td_tmp32_0
+    sta td_tmp32_1
+    sta td_tmp32_2
+    sta td_tmp32_3
+
+    ; sign = coeff_hi ^ tmp_hi
+    lda td_coeff_hi
+    eor td_tmp_hi
+    and #$80
+    sta td_tmp
+
+    ; abs(coeff)
+    lda td_coeff_hi
+    bpl coeff_pos
+    lda td_coeff_lo
+    eor #$FF
+    sta td_coeff_lo
+    lda td_coeff_hi
+    eor #$FF
+    sta td_coeff_hi
+    clc
+    lda td_coeff_lo
+    adc #$01
+    sta td_coeff_lo
+    lda td_coeff_hi
+    adc #$00
+    sta td_coeff_hi
+coeff_pos:
+
+    ; abs(tmp)
+    lda td_tmp_hi
+    bpl tmp_pos
+    lda td_tmp_lo
+    eor #$FF
+    sta td_tmp_lo
+    lda td_tmp_hi
+    eor #$FF
+    sta td_tmp_hi
+    clc
+    lda td_tmp_lo
+    adc #$01
+    sta td_tmp_lo
+    lda td_tmp_hi
+    adc #$00
+    sta td_tmp_hi
+tmp_pos:
+
+    ; P0 = lo * lo
+    lda td_coeff_lo
+    sta td_a
+    lda td_tmp_lo
+    sta td_b
+    jsr mul8
+    lda td_prod_lo
+    sta td_tmp32_0
+    lda td_prod_hi
+    sta td_tmp32_1
+
+    ; P1 = hi * lo << 8
+    lda td_coeff_hi
+    sta td_a
+    lda td_tmp_lo
+    sta td_b
+    jsr mul8
+    clc
+    lda td_tmp32_1
+    adc td_prod_lo
+    sta td_tmp32_1
+    lda td_tmp32_2
+    adc td_prod_hi
+    sta td_tmp32_2
+    lda td_tmp32_3
+    adc #$00
+    sta td_tmp32_3
+
+    ; P2 = lo * hi << 8
+    lda td_coeff_lo
+    sta td_a
+    lda td_tmp_hi
+    sta td_b
+    jsr mul8
+    clc
+    lda td_tmp32_1
+    adc td_prod_lo
+    sta td_tmp32_1
+    lda td_tmp32_2
+    adc td_prod_hi
+    sta td_tmp32_2
+    lda td_tmp32_3
+    adc #$00
+    sta td_tmp32_3
+
+    ; P3 = hi * hi << 16
+    lda td_coeff_hi
+    sta td_a
+    lda td_tmp_hi
+    sta td_b
+    jsr mul8
+    clc
+    lda td_tmp32_2
+    adc td_prod_lo
+    sta td_tmp32_2
+    lda td_tmp32_3
+    adc td_prod_hi
+    sta td_tmp32_3
+
+    ; apply sign
+    lda td_tmp
+    bpl done
+    lda td_tmp32_0
+    eor #$FF
+    sta td_tmp32_0
+    lda td_tmp32_1
+    eor #$FF
+    sta td_tmp32_1
+    lda td_tmp32_2
+    eor #$FF
+    sta td_tmp32_2
+    lda td_tmp32_3
+    eor #$FF
+    sta td_tmp32_3
+    clc
+    lda td_tmp32_0
+    adc #$01
+    sta td_tmp32_0
+    lda td_tmp32_1
+    adc #$00
+    sta td_tmp32_1
+    lda td_tmp32_2
+    adc #$00
+    sta td_tmp32_2
+    lda td_tmp32_3
+    adc #$00
+    sta td_tmp32_3
+
+done:
+    ldy td_saved_y
+    pla
+    tax
+    rts
+.endproc
+
+; Arithmetic right shift by 14 of td_tmp32_3..0; returns low16 in td_tmp_hi:td_tmp_lo
+.proc td_shr14_arith
 	ldx #$0E
 shr14_loop:
-    ; set carry = sign bit of acc3
-    lda td_tmp32_3
-    and #$80
-    beq clr_c
-    sec
-    jmp do_ror
-clr_c:
-    clc
-do_ror:
-    ; ROR must start at most-significant byte (acc3) and propagate down to acc0
-    ror td_tmp32_3
-    ror td_tmp32_2
-    ror td_tmp32_1
-    ror td_tmp32_0
-    dex
-    bne shr14_loop
-
-
-	; Return lower 16 bits (acc0:acc1) as result into td_tmp_lo:td_tmp_hi
+	lda td_tmp32_3
+	and #$80
+	beq shr14_clr
+	sec
+	jmp shr14_ror
+shr14_clr:
+	clc
+shr14_ror:
+	ror td_tmp32_3
+	ror td_tmp32_2
+	ror td_tmp32_1
+	ror td_tmp32_0
+	dex
+	bne shr14_loop
 	lda td_tmp32_0
 	sta td_tmp_lo
 	lda td_tmp32_1
 	sta td_tmp_hi
-	; No result prints here in production image
-	ldy td_saved_y
-	pla
-	tax
 	rts
 .endproc
 
@@ -437,16 +536,11 @@ do_ror:
 	stx td_power_lo
 	stx td_power_hi
 bin_loop:
-	; print bin index (compact)
-	txa
-	jsr printsafebyte
 	; reset per-bin energy
 	lda #$00
 	sta td_bin_power_lo
-	lda #$00
 	sta td_bin_power_hi
 	; init prevs
-	lda #$00
 	sta td_s_prev_lo
 	sta td_s_prev_hi
 	sta td_s_prev2_lo
@@ -455,6 +549,7 @@ bin_loop:
 	ldy #$00
 @sample_loop2:
 	lda (ptr),y
+	lsr ; Reduce resolution
 	sec
 	sbc #$80        ; center to signed 8-bit
 	sta td_sample
@@ -579,6 +674,7 @@ imabs2:
 	lda td_tmp32_1
 	adc td_tmp32_3
 	sta td_tmp_hi
+	; (diagnostics removed) - only print index and energy
 	; store per-bin energy
 	lda td_tmp_lo
 	sta td_bin_power_lo
