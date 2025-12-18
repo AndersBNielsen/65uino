@@ -272,14 +272,12 @@ td_coeff_lo: .res 1
 td_coeff_hi: .res 1
 td_s_prev2_lo: .res 1
 td_s_prev2_hi: .res 1
-td_mul_debug: .res 1
-td_samples_shown: .res 1
-td_sample_idx: .res 1
+;td_mul_debug: .res 1  ; removed - unused
+;td_samples_shown: .res 1  ; removed - unused
+;td_sample_idx: .res 1  ; removed - unused
 ; (alt multiply temps removed to save ROM)
+
 .segment "RODATA"
-; Using Q1.14 coeffs and safe zero-page temps
-
-
 ; Q1.14 coefficients (signed 16-bit, little endian) for bins [2,5,7,9,12,14,16,18]
 ; Store Q1.14 coeffs split into low/high byte arrays for indexed access
 coeff_q14_lo:
@@ -680,6 +678,9 @@ imabs2:
 	sta td_bin_power_lo
 	lda td_tmp_hi
 	sta td_bin_power_hi
+	
+	lda tflags
+	bpl :+ 
 	; print index and energy
 	txa
 	jsr printsafebyte
@@ -691,6 +692,7 @@ imabs2:
 	jsr printsafebyte
 	lda #$0A
 	jsr dbg_putc
+	:
 	jsr td_select_max
 	inx
 	cpx #$08

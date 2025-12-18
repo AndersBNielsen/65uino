@@ -24,12 +24,7 @@ jsr readadcstart
 ; print start marker
 
 jsr detect_tone_q14_16bit
-lda td_max_bin
-jsr printsafebyte
-lda #$0A
-jsr dbg_putc
-lda #$0A
-jsr dbg_putc
+
 ;ldx #$5A
 
 	;jsr printsafebyte
@@ -45,9 +40,14 @@ jsr dbg_putc
 ; Halt here so the test runs only once and we can observe output
 
 
-;lda #$02
-;sta DRA            ; Turn off clock, Serial TX high
-;ldy #0
+lda #$02
+sta DRA            ; Turn off clock, Serial TX high
+ldy #0
+
+
+lda td_max_bin
+jsr printsafebyte
+
 ;jsr ramout
 
 
