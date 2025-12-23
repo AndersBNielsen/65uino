@@ -44,6 +44,8 @@ adcinloop:
 	sta (ptr),y        ; Store in external RAM
 	iny
 	bne adcinloop    ; Continue within page
+	bit tflags
+	bvs adcdone
 
 	; Advance to next page
 	lda ptr+1
@@ -679,7 +681,7 @@ imabs2:
 	lda td_tmp_hi
 	sta td_bin_power_hi
 	
-	lda tflags
+	bit tflags
 	bpl :+ 
 	; print index and energy
 	txa
@@ -737,3 +739,39 @@ end_bins2:
 @done:
 	rts
 .endproc
+
+ledpb2347:
+pha
+lda DDRB
+ora #$9C ; Set PB2,PB3,PB4,PB7 as outputs
+sta DDRB
+
+lda DRB
+ora #$9C
+sta DRB   ; Set PB2,PB3,PB4,PB7 high
+pla
+cmp #0
+bne :+
+lda DRB
+and #$fb ; PB2 low if tone detected = LED On
+sta DRB
+:
+cmp #1
+bne :+
+lda DRB
+and #$f7 ; PB3 low if tone detected = LED On
+sta DRB
+:
+cmp #2
+bne :+
+lda DRB
+and #$ef ; PB4 low if tone detected = LED On
+sta DRB
+:
+cmp #3
+bne :+
+lda DRB
+and #$7f ; PB7 low if tone detected = LED On
+sta DRB
+:
+rts

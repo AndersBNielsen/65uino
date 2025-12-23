@@ -12,6 +12,8 @@ lda DDRA
 ora #$80
 sta DDRA ; Clock output
 
+lda #$00
+sta tflags ; Set SDR single page mode in tflags
 
 lda DRA ; Clear stale ADC data
 ora #$82
@@ -40,14 +42,17 @@ jsr detect_tone_q14_16bit
 ; Halt here so the test runs only once and we can observe output
 
 
-lda #$02
-sta DRA            ; Turn off clock, Serial TX high
-ldy #0
-
-
 lda td_max_bin
 jsr printsafebyte
-
+jsr ledpb2347
+lda #$20
+jsr serial_tx
+lda td_power_hi
+jsr printsafebyte
+lda td_power_lo
+jsr printsafebyte
+lda #$0A
+jsr serial_tx
 ;jsr ramout
 
 

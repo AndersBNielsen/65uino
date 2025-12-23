@@ -66,7 +66,7 @@ txcnt:    .res 1 ; Reserve 1 byte for txcnt
 runpnt:   .res 2 ; Reserve 2 bytes for runpnt
 cursor:   .res 1 ; Reserve 1 byte for cursor ; SSD1306
 scroll:   .res 1 ; Reserve 1 byte for scroll ; SSD1306
-tflags:   .res 1 ; Reserve 1 byte for tflags ; Bit usage: 0=reserved, 1=monitor byte selected, 3=i2c ack(0)/nack(1), 4=monitor h/l nibble select, 6=fast text mode, 7=invert text; others reserved.
+tflags:   .res 1 ; Reserve 1 byte for tflags ; Bit usage: 0=reserved, 1=monitor byte selected, 3=i2c ack(0)/nack(1), 4=monitor h/l nibble select, 6=fast text mode/sdr single page read, 7=invert text/sdr debug; others reserved.
 serialbuf: .res 0 ; Reserve 1 byte for serialbuf - Used for text display and userland program storage
 
 timer2  = stringp ; We're not going to be printing strings while waiting for timer2
