@@ -1,0 +1,16 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_METHOD} !^(GET|HEAD)$
+  RewriteRule ^ - [F,END]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "default-src 'none'; script-src 'self' https://www.googletagmanager.com; style-src 'self'; img-src 'self' https:; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://*.doubleclick.net https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "no-referrer"
+  <Files "index.html">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </Files>
+</IfModule>

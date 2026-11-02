@@ -1,5 +1,10 @@
 # Welcome to the 65uino project
 
+
+## Browser emulator
+
+The self-contained [browser emulator](emulator/README.md) runs the real 65uino ROM. [Try it online](https://www.imania.dk/65uino-emulator/). From `emulator/`, run `npm test` and `npm run build`. Emulator code and bundled hardware/firmware assets have separate licenses; see [emulator/LICENSE.md](emulator/LICENSE.md).
+
 It's a green 6502 based learning platform in a familiar form factor and a contestant in the 2023 Hackaday Prize. By taking IC's out of the waste stream and into useful products we encourage recycling and reuse.
 It's a fun way to learn assembly programming and a tool you can use in your workshop for a lot more than you expect.
 

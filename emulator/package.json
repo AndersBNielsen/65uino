@@ -1,0 +1,22 @@
+{
+  "name": "65uino-emulator",
+  "version": "1.0.0",
+  "description": "Browser-based 65uino emulator with 6507, 6532 RIOT, I2C SSD1306, GPIO and serial.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/",
+    "build": "node scripts/build-site.mjs",
+    "build:firmware": "scripts/build-firmware.sh",
+    "build:examples": "scripts/build-examples.sh",
+    "serve": "python3 -m http.server 8065 --directory site",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

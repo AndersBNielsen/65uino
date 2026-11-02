@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.googletagmanager.com; style-src 'self'; img-src 'self' https:; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://*.doubleclick.net https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#101b17">
+  <meta name="description" content="Run a 65uino in your browser: real firmware, 6507 CPU, 6532 RIOT, SSD1306 OLED, button, GPIO, and serial terminal.">
+  <title>65uino · browser emulator</title>
+  <link rel="canonical" href="https://www.imania.dk/65uino-emulator/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="65uino · 6507 browser emulator">
+  <meta property="og:description" content="Run the real 65uino BIOS in your browser: OLED, button, GPIO and serial terminal. No installation.">
+  <meta property="og:url" content="https://www.imania.dk/65uino-emulator/">
+  <meta property="og:image" content="https://www.imania.dk/retro-emulators/assets/65uino-preview.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="./style.css?v=20261017d">
+  <script type="module" src="./js/app.js?v=20261017d"></script>
+  <script src="/js/imania-static-analytics.js?v=20261020"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">65<span>u</span></span><span class="brand-copy">65uino <small>browser emulator</small></span></div>
+    <div class="top-actions"><span class="status" id="status" role="status">Loading firmware…</span><a href="https://www.imania.dk/retro-emulators/?language=en" target="_blank" rel="noopener">All retro emulators ↗</a></div>
+  </header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">A pocket-sized 6502 lab</p><h1>Flip the switch.<br><em>See the bytes come alive.</em></h1><p>Run the real 65uino firmware in your browser. Press its button, watch the OLED, poke the GPIO, and inspect the 6507 as it runs.</p></div><div class="intro-stats"><span><b>6507</b> CPU</span><span><b>6532</b> RIOT</span><span><b>128×64</b> OLED</span></div></section>
+    <div class="workspace">
+      <section class="board-card" aria-label="Virtual 65uino board">
+        <div class="card-heading"><div><p class="eyebrow">01 / Hardware</p><h2>On the board</h2></div><span class="live-dot">LIVE SIMULATION</span></div>
+        <div class="board" id="board">
+          <img class="board-photo" src="./assets/65uino-board.jpeg" alt="Populated purple 65uino board with blue OLED module mounted above the 6507 and 6532 chips" draggable="false">
+          <canvas id="oled" width="128" height="64" role="img" aria-label="Live SSD1306 OLED display mounted on the board"></canvas>
+          <span id="led" class="led" aria-label="Green board LED"></span>
+          <button class="hardware-reset" id="boardReset" type="button" aria-label="Press the physical RST button"><span class="sr-only">RST</span></button>
+          <button class="hardware-button" id="boardButton" type="button" aria-label="Hold the physical BTN button"><span class="sr-only">BTN</span></button>
+          <div class="pin-rail left-rail" aria-label="D0 to D7 pin header" id="leftPins"></div>
+          <div class="pin-rail right-rail" aria-label="D8 to D13 and I²C pin header" id="rightPins"></div>
+        </div>
+        <div class="board-mobile-controls"><button id="boardButtonMobile" type="button" aria-label="Hold 65uino BTN">Hold BTN</button><button id="boardResetMobile" type="button">RST</button></div>
+        <p class="board-note">The real mounted-board photo is the backdrop; the OLED and buttons are live. Hold <kbd>BTN</kbd> to select. The bottom header and GPIO panel let you pull free input pins low.</p>
+      </section>
+      <div class="side-stack">
+        <section class="panel controls-panel"><div class="card-heading"><div><p class="eyebrow">02 / Controls</p><h2>Run the machine</h2></div></div>
+          <div class="transport"><button id="playPause" class="primary" type="button">Pause</button><button id="step" type="button">Step</button><button id="reset" type="button">Reset</button><button id="power" type="button">Power cycle</button></div>
+          <div class="control-grid"><label>Firmware <select id="preset"><option value="65uino-bios.bin">65uino BIOS · original</option><option value="hello-demo.bin">Hello OLED · demo</option></select></label><label>Speed <select id="speed"><option value="0.5">½× real time</option><option value="1" selected>1× real time</option><option value="2">2× real time</option><option value="4">4× real time</option></select></label><label>CPU clock <select id="clock"><option value="500000">500 kHz</option><option value="1000000" selected>1 MHz</option><option value="2000000">2 MHz</option><option value="4000000">4 MHz</option><option value="8000000">8 MHz</option></select></label><label>Baud <select id="baud"><option value="4800" selected>4800</option><option value="9600">9600</option><option value="19200">19200</option></select></label></div>
+          <div class="file-actions"><button id="uploadUserland" type="button">Run bundled userland</button><label class="rom-picker" for="romFile">Open local 65uino ROM <input id="romFile" type="file" accept=".bin,.rom,application/octet-stream"></label></div><p class="muted">Raw 6507 ROM image, 1–65,536 bytes.</p>
+        </section>
+        <section class="panel gpio-panel"><div class="card-heading"><div><p class="eyebrow">03 / Connections</p><h2>GPIO &amp; peripherals</h2></div></div><div class="switch-row"><label class="toggle"><input id="phaseloom" type="checkbox"><span class="toggle-track"></span><span>Attach PhaseLoom (Si5351 · 0x60)</span></label></div><div class="gpio-legend"><span><i class="pin-key high"></i> High</span><span><i class="pin-key low"></i> Low</span><span><i class="pin-key output"></i> Driven output</span></div><div id="gpioList" class="gpio-list"></div></section>
+      </div>
+      <section class="panel terminal-panel"><div class="card-heading"><div><p class="eyebrow">04 / UART</p><h2>Serial terminal</h2></div><button id="clearTerminal" type="button" class="text-button">Clear</button></div><pre id="terminal" aria-label="Serial output"></pre><form id="terminalForm"><input id="terminalInput" aria-label="Text to send over serial" placeholder="Send text at the selected baud rate" autocomplete="off"><button type="submit">Send ↵</button></form></section>
+      <section class="panel debugger-panel"><div class="card-heading"><div><p class="eyebrow">05 / Under the hood</p><h2>CPU monitor</h2></div><span class="mono" id="cycleCount">0 cycles</span></div><div id="registers" class="registers"></div><pre id="disassembly" class="disassembly"></pre><div class="debug-actions"><label>Breakpoint $<input id="breakpoint" inputmode="text" maxlength="4" placeholder="1000" aria-label="Hexadecimal breakpoint address"></label><button id="setBreakpoint" type="button">Set</button><button id="clearBreakpoint" type="button">Clear</button><span id="breakpointStatus" class="muted"></span></div></section>
+    </div>
+    <footer><a href="https://www.imania.dk/6502-browser-emulators-guide?language=en">Read the 6502 emulator guide</a> · <a href="https://www.imania.dk/samlesaet-hobbyelektronik-og-ic-er-65uino-kit-smd-stik-og-sokler-inkl.htm?language=en">65uino kit</a> · Built from scratch for the <a href="https://github.com/AndersBNielsen/65uino" target="_blank" rel="noopener">65uino</a>. Emulation runs locally in your browser. <span id="firmwareVersion"></span> · <a href="./65uino-emulator-source.zip" download>Download emulator source ↓</a> · <a href="https://github.com/AndersBNielsen/65uino" target="_blank" rel="noopener">Firmware source ↗</a></footer>
+  </main>
+</body>
+</html>

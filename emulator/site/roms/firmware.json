@@ -1,0 +1,9 @@
+{
+  "source": "https://github.com/AndersBNielsen/65uino",
+  "commit": "2dcd9826e19dc98c5d480c1f56d852400a396110",
+  "assembler": "ca65 V2.18 - N/A",
+  "bios": { "file": "65uino-bios.bin", "size": 4096, "sha256": "5e8597a8a690159ba766aa3e7d901483d095f32283475339074d973f76899f5a" },
+  "userland": { "file": "65uino-userland.bin" },
+  "labels": "65uino-bios.labels.txt",
+  "license": "CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/) - firmware by Anders Nielsen"
+}
