@@ -20,9 +20,7 @@ await fs.rm(dest, { recursive: true, force: true });
 await fs.cp(src, dest, { recursive: true });
 // Ship the precise committed sources alongside the browser app, with no .git,
 // ignored caches, local test downloads, credentials or node_modules.
-const gitPrefix = execFileSync('git', ['rev-parse', '--show-prefix'], { cwd: root, encoding: 'utf8' }).trim().replace(/\/$/, '');
-const sourceTree = gitPrefix ? `HEAD:${gitPrefix}` : 'HEAD';
 execFileSync('git', ['archive', '--format=zip',
   `--output=${path.join(dest, '65uino-emulator-source.zip')}`,
-  '--prefix=65uino-emulator/', sourceTree], { cwd: root });
+  '--prefix=65uino-emulator/', 'HEAD'], { cwd: root });
 console.log(`Built ${dest} (BIOS ${meta.commit.slice(0, 8)}, SHA-256 verified)`);
