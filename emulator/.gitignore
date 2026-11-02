@@ -8,3 +8,4 @@ screenshots/
 !site/roms/*.bin
 !test/
 !test/**
+test/.cache/
