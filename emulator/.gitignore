@@ -4,3 +4,7 @@ dist/
 test/.cache/
 screenshots/
 .DS_Store
+# The parent hardware repo ignores *.bin and test*; these are emulator sources.
+!site/roms/*.bin
+!test/
+!test/**
